@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "lmp",
+  "version": "${version}",
+  "name": "Litematica Material Progress",
+  "description": "为共享原理图（Litematica + Syncmatica）划定材料区，由服务端异步扫描容器，内置菜单显示所需 / 已收集 / 还差。",
+  "authors": [
+    "chenjicheng"
+  ],
+  "contact": {
+    "homepage": "https://github.com/chenjicheng/litematica-material-progress",
+    "sources": "https://github.com/chenjicheng/litematica-material-progress",
+    "issues": "https://github.com/chenjicheng/litematica-material-progress/issues"
+  },
+  "license": "LGPL-3.0",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.chenjicheng.lmp.LmpMod"
+    ],
+    "client": [
+      "com.chenjicheng.lmp.client.LmpClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.2",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "litematica": "*",
+    "syncmatica": "*",
+    "servux": "*"
+  }
+}

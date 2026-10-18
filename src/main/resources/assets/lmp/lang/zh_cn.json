@@ -1,0 +1,18 @@
+{
+  "lmp.mod.name": "材料收集进度",
+  "lmp.command.region.pos1": "已将材料区角点 1 设为 %s",
+  "lmp.command.region.pos2": "已将材料区角点 2 设为 %s",
+  "lmp.command.region.created": "材料区「%s」已保存到服务端",
+  "lmp.command.scan.started": "已开始扫描材料区，进度会显示在菜单中",
+  "lmp.command.scan.partial": "扫描完成，但有 %s 个区块未加载，结果标记为不完整",
+  "lmp.gui.title": "材料收集进度 - %s",
+  "lmp.gui.column.required": "所需",
+  "lmp.gui.column.present": "已收集",
+  "lmp.gui.column.missing": "还差",
+  "lmp.gui.progress.types": "种类进度 %s%%（%s/%s）",
+  "lmp.gui.progress.items": "数量进度 %s%%（%s/%s）",
+  "lmp.gui.status.server_missing": "服务端未安装本模组，无法获取进度",
+  "lmp.gui.status.region_empty": "该原理图尚未划定材料区",
+  "lmp.gui.status.scanning": "正在扫描…（%s%%）",
+  "lmp.gui.status.full_schematic": "所需材料按全量原理图统计"
+}

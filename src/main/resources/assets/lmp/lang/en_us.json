@@ -1,0 +1,18 @@
+{
+  "lmp.mod.name": "Material Progress",
+  "lmp.command.region.pos1": "Material region corner 1 set to %s",
+  "lmp.command.region.pos2": "Material region corner 2 set to %s",
+  "lmp.command.region.created": "Material region \"%s\" saved on the server",
+  "lmp.command.scan.started": "Material region scan started; progress will appear in the menu",
+  "lmp.command.scan.partial": "Scan finished, but %s chunks were not loaded; result marked incomplete",
+  "lmp.gui.title": "Material progress - %s",
+  "lmp.gui.column.required": "Required",
+  "lmp.gui.column.present": "Collected",
+  "lmp.gui.column.missing": "Missing",
+  "lmp.gui.progress.types": "Types %s%% (%s/%s)",
+  "lmp.gui.progress.items": "Items %s%% (%s/%s)",
+  "lmp.gui.status.server_missing": "The server does not have this mod; progress is unavailable",
+  "lmp.gui.status.region_empty": "No material region is defined for this schematic",
+  "lmp.gui.status.scanning": "Scanning… (%s%%)",
+  "lmp.gui.status.full_schematic": "Required counts cover the full schematic"
+}

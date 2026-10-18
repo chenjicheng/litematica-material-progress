@@ -1,0 +1,61 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    // 生态依赖（malilib / litematica / syncmatica）的坐标尚未核实：
+    // masa.dy.fi 的路径与 Syncmatica 的发布方式都需要在 M3 之前实测确认，
+    // 不要凭猜测写入依赖，避免构建被不可解析的坐标污染。
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // M3 需要（届时核实坐标后再启用）：
+    // modCompileOnly "fi.dy.masa:malilib-fabric-1.21.11:<version>"   // malilib，LGPL-3.0
+    // modCompileOnly "fi.dy.masa:litematica-fabric-1.21.11:<version>" // 可选，GuiMaterialList / SelectionManager
+    // modCompileOnly "ch.endte:syncmatica:<version>"                  // 可选，无公开 maven，需 JitPack 或本地 jar
+
+    // 测试（M1 计数语义单元测试）
+    testImplementation "org.junit.jupiter:junit-jupiter:5.13.4"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+processResources {
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+    it.options.encoding = 'UTF-8'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    from("LICENSE") {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
