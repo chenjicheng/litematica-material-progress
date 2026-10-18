@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -12,6 +13,8 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 
@@ -32,9 +35,8 @@ import org.jetbrains.annotations.Nullable;
 public final class LmpServerNetworking implements ScanScheduler.Listener
 {
     /** 与 {@code /lmp scan} 相同的权限闸（1.21.11 的 GAMEMASTERS 对应旧的权限等级 2）。 */
-    private static final java.util.function.Predicate<net.minecraft.server.command.ServerCommandSource>
-            FORCE_RESCAN_PERMISSION = net.minecraft.server.command.CommandManager.requirePermissionLevel(
-                    net.minecraft.server.command.CommandManager.GAMEMASTERS_CHECK);
+    private static final Predicate<ServerCommandSource> FORCE_RESCAN_PERMISSION =
+            CommandManager.requirePermissionLevel(CommandManager.GAMEMASTERS_CHECK);
 
     /**
      * 当前这一轮服务器生命周期对应的网络层。
@@ -88,6 +90,20 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
                 net.sendRegionList(handler.getPlayer());
             }
         });
+    }
+
+    /**
+     * 服务器停止：把自己从「当前实例」上摘掉。
+     *
+     * <p>接收器本身没法注销（Fabric 没有这个 API），但至少不要让 {@link #current} 继续指向
+     * 一个已经停掉的服务器上的实例。
+     */
+    public void unregister()
+    {
+        if (current == this)
+        {
+            current = null;
+        }
     }
 
     /** 区域发生变更后调用：让所有在线客户端刷新区域清单。 */

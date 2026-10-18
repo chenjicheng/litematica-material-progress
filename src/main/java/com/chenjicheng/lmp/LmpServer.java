@@ -87,6 +87,11 @@ public final class LmpServer
             store.save();
         }
 
+        if (networking != null)
+        {
+            networking.unregister();
+        }
+
         store = null;
         scheduler = null;
         networking = null;
