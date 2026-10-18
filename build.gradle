@@ -10,9 +10,13 @@ base {
 }
 
 repositories {
-    // 生态依赖（malilib / litematica / syncmatica）的坐标尚未核实：
-    // masa.dy.fi 的路径与 Syncmatica 的发布方式都需要在 M3 之前实测确认，
-    // 不要凭猜测写入依赖，避免构建被不可解析的坐标污染。
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
 }
 
 dependencies {
@@ -21,12 +25,20 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // M3 需要（届时核实坐标后再启用）：
-    // modCompileOnly "fi.dy.masa:malilib-fabric-1.21.11:<version>"   // malilib，LGPL-3.0
-    // modCompileOnly "fi.dy.masa:litematica-fabric-1.21.11:<version>" // 可选，GuiMaterialList / SelectionManager
-    // modCompileOnly "ch.endte:syncmatica:<version>"                  // 可选，无公开 maven，需 JitPack 或本地 jar
+    // 生态依赖：编译期可见，运行期可选（未安装时功能降级，不得崩溃）。
+    // 这些是 LGPL-3.0 / CC0-1.0 的独立模组，我们只链接它们的公开类，不复制代码。
+    modCompileOnly "maven.modrinth:malilib:${project.malilib_version}"
+    modCompileOnly "maven.modrinth:litematica:${project.litematica_version}"
+    modCompileOnly "maven.modrinth:syncmatica:${project.syncmatica_version}"
 
-    // 测试（M1 计数语义单元测试）
+    // 开发环境运行时（runClient 时提供真实依赖；正式发布不打包它们）
+    modLocalRuntime "maven.modrinth:malilib:${project.malilib_version}"
+    modLocalRuntime "maven.modrinth:litematica:${project.litematica_version}"
+    modLocalRuntime "maven.modrinth:syncmatica:${project.syncmatica_version}"
+
+    // 让测试运行在 Fabric 运行时中：Minecraft 的 yarn 映射存在跨包 package-private 访问，
+    // 纯 JUnit JVM 下会 IllegalAccessError，必须由 loader 的 dev 期变换处理。
+    testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
     testImplementation "org.junit.jupiter:junit-jupiter:5.13.4"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
