@@ -1,10 +1,33 @@
 {
   "lmp.mod.name": "材料收集进度",
-  "lmp.command.region.pos1": "已将材料区角点 1 设为 %s",
-  "lmp.command.region.pos2": "已将材料区角点 2 设为 %s",
-  "lmp.command.region.created": "材料区「%s」已保存到服务端",
-  "lmp.command.scan.started": "已开始扫描材料区，进度会显示在菜单中",
-  "lmp.command.scan.partial": "扫描完成，但有 %s 个区块未加载，结果标记为不完整",
+
+  "lmp.command.player_only": "该命令只能由玩家执行",
+  "lmp.command.not_ready": "服务端尚未就绪，请稍后再试",
+
+  "lmp.command.region.pos1": "材料区角点 1 已设为 (%s, %s, %s)",
+  "lmp.command.region.pos2": "材料区角点 2 已设为 (%s, %s, %s)",
+  "lmp.command.region.created": "材料区「%s」已保存：体积 %s 格，覆盖 %s 个区块",
+  "lmp.command.region.exists": "已存在名为「%s」的材料区",
+  "lmp.command.region.missing_corners": "请先用 /lmp region pos1 和 pos2 定好两个角点",
+  "lmp.command.region.not_found": "找不到材料区「%s」",
+  "lmp.command.region.bad_placement": "placement 标识不是合法 UUID：%s",
+  "lmp.command.region.bound": "材料区「%s」已绑定到共享放置 %s",
+  "lmp.command.region.list_empty": "当前没有任何材料区",
+  "lmp.command.region.list_entry": "- %s | 维度 %s | 体积 %s | 覆盖率 %s‰ | placement %s",
+  "lmp.command.region.info": "材料区「%s」：维度 %s，从 (%s, %s, %s) 到 (%s, %s, %s)，体积 %s 格 / %s 个区块，版本 %s，覆盖率 %s‰",
+  "lmp.command.region.deleted": "材料区「%s」已删除",
+
+  "lmp.command.scan.started": "已开始扫描材料区「%s」，进度会显示在菜单中",
+  "lmp.command.scan.need_name": "当前维度有 %s 个材料区，请指定名称：/lmp scan <名称>",
+  "lmp.command.scan.rate_limited": "刷新太频繁了，请稍后再试",
+
+  "lmp.command.status.entry": "%s：%s，区块 %s/%s，已扫描容器 %s",
+  "lmp.command.status.idle": "当前没有正在进行的扫描",
+
+  "lmp.error.region.too_large": "区域太大（%s 格，上限 %s），请缩小范围",
+  "lmp.error.region.too_many_chunks": "区域跨越太多区块（%s 个），请缩小范围",
+  "lmp.error.region.empty_name": "材料区名字不能为空",
+
   "lmp.gui.title": "材料收集进度 - %s",
   "lmp.gui.column.required": "所需",
   "lmp.gui.column.present": "已收集",
@@ -13,6 +36,15 @@
   "lmp.gui.progress.items": "数量进度 %s%%（%s/%s）",
   "lmp.gui.status.server_missing": "服务端未安装本模组，无法获取进度",
   "lmp.gui.status.region_empty": "该原理图尚未划定材料区",
-  "lmp.gui.status.scanning": "正在扫描…（%s%%）",
-  "lmp.gui.status.full_schematic": "所需材料按全量原理图统计"
+  "lmp.gui.status.scanning": "正在扫描…（%s%%，区块 %s/%s）",
+  "lmp.gui.status.finalizing": "正在读取原理图…",
+  "lmp.gui.status.full_schematic": "所需材料按全量原理图统计",
+  "lmp.gui.status.unknown_required": "所需材料未知（服务端读不到原理图）",
+  "lmp.gui.status.partial": "结果不完整：有区块未加载（覆盖率 %s‰）",
+  "lmp.gui.button.refresh": "刷新扫描",
+  "lmp.gui.button.select_region": "用当前选区设为材料区",
+  "lmp.gui.label.last_scan": "上次扫描：%s",
+  "lmp.gui.label.never_scanned": "尚未扫描",
+  "lmp.gui.section.extra": "额外囤积（原理图不需要）",
+  "lmp.gui.empty": "还没有数据，先划定材料区并扫描一次"
 }

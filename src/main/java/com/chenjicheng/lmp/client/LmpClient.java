@@ -1,19 +1,21 @@
 package com.chenjicheng.lmp.client;
 
-import com.chenjicheng.lmp.LmpMod;
 import net.fabricmc.api.ClientModInitializer;
 
+import com.chenjicheng.lmp.LmpMod;
+import com.chenjicheng.lmp.net.LmpClientNetworking;
+
 /**
- * 客户端入口：只做展示与取数，不做扫描。
+ * 客户端入口：只做展示与取数，从不扫描。
  *
- * <p>M1：注册 S2C 接收器、按 placementId 请求快照、渲染最小表格。
- * M3：改为 malilib 的 GuiListBase 界面，并复用 Litematica 的 GuiMaterialList。
+ * <p>客户端不注册任何世界相关事件；扫描完全在服务端进行，客户端拿到的是服务端算好的结果列表。
  */
 public class LmpClient implements ClientModInitializer
 {
     @Override
     public void onInitializeClient()
     {
-        LmpMod.LOGGER.info("{} 客户端初始化（骨架，尚未实现功能）", LmpMod.MOD_ID);
+        LmpClientNetworking.register();
+        LmpMod.LOGGER.info("{} 客户端组件已注册", LmpMod.MOD_ID);
     }
 }

@@ -1,10 +1,33 @@
 {
   "lmp.mod.name": "Material Progress",
-  "lmp.command.region.pos1": "Material region corner 1 set to %s",
-  "lmp.command.region.pos2": "Material region corner 2 set to %s",
-  "lmp.command.region.created": "Material region \"%s\" saved on the server",
-  "lmp.command.scan.started": "Material region scan started; progress will appear in the menu",
-  "lmp.command.scan.partial": "Scan finished, but %s chunks were not loaded; result marked incomplete",
+
+  "lmp.command.player_only": "This command can only be run by a player",
+  "lmp.command.not_ready": "The server is not ready yet, try again shortly",
+
+  "lmp.command.region.pos1": "Material region corner 1 set to (%s, %s, %s)",
+  "lmp.command.region.pos2": "Material region corner 2 set to (%s, %s, %s)",
+  "lmp.command.region.created": "Material region \"%s\" saved: %s blocks, %s chunks",
+  "lmp.command.region.exists": "A material region named \"%s\" already exists",
+  "lmp.command.region.missing_corners": "Set both corners first with /lmp region pos1 and pos2",
+  "lmp.command.region.not_found": "No material region named \"%s\"",
+  "lmp.command.region.bad_placement": "Not a valid placement UUID: %s",
+  "lmp.command.region.bound": "Material region \"%s\" bound to shared placement %s",
+  "lmp.command.region.list_empty": "There are no material regions yet",
+  "lmp.command.region.list_entry": "- %s | dimension %s | %s blocks | coverage %s‰ | placement %s",
+  "lmp.command.region.info": "Material region \"%s\": dimension %s, from (%s, %s, %s) to (%s, %s, %s), %s blocks / %s chunks, revision %s, coverage %s‰",
+  "lmp.command.region.deleted": "Material region \"%s\" deleted",
+
+  "lmp.command.scan.started": "Scanning material region \"%s\"; progress will appear in the menu",
+  "lmp.command.scan.need_name": "This dimension has %s material regions; name one: /lmp scan <name>",
+  "lmp.command.scan.rate_limited": "Refreshing too often, try again shortly",
+
+  "lmp.command.status.entry": "%s: %s, chunks %s/%s, containers scanned %s",
+  "lmp.command.status.idle": "No scan is currently running",
+
+  "lmp.error.region.too_large": "Region is too large (%s blocks, limit %s); shrink it",
+  "lmp.error.region.too_many_chunks": "Region spans too many chunks (%s); shrink it",
+  "lmp.error.region.empty_name": "The material region name cannot be empty",
+
   "lmp.gui.title": "Material progress - %s",
   "lmp.gui.column.required": "Required",
   "lmp.gui.column.present": "Collected",
@@ -13,6 +36,15 @@
   "lmp.gui.progress.items": "Items %s%% (%s/%s)",
   "lmp.gui.status.server_missing": "The server does not have this mod; progress is unavailable",
   "lmp.gui.status.region_empty": "No material region is defined for this schematic",
-  "lmp.gui.status.scanning": "Scanning… (%s%%)",
-  "lmp.gui.status.full_schematic": "Required counts cover the full schematic"
+  "lmp.gui.status.scanning": "Scanning… (%s%%, chunks %s/%s)",
+  "lmp.gui.status.finalizing": "Reading the schematic…",
+  "lmp.gui.status.full_schematic": "Required counts cover the full schematic",
+  "lmp.gui.status.unknown_required": "Required materials unknown (the server cannot read the schematic)",
+  "lmp.gui.status.partial": "Incomplete result: some chunks were not loaded (coverage %s‰)",
+  "lmp.gui.button.refresh": "Refresh scan",
+  "lmp.gui.button.select_region": "Use current selection as material region",
+  "lmp.gui.label.last_scan": "Last scan: %s",
+  "lmp.gui.label.never_scanned": "Never scanned",
+  "lmp.gui.section.extra": "Extra stock (not required by the schematic)",
+  "lmp.gui.empty": "No data yet — define a material region and scan once"
 }
