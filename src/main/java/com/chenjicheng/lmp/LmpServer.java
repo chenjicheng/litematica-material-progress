@@ -10,6 +10,7 @@ import net.minecraft.util.WorldSavePath;
 
 import com.chenjicheng.lmp.command.LmpCommand;
 import com.chenjicheng.lmp.command.RegionSelectionState;
+import com.chenjicheng.lmp.material.LitematicRequiredMaterialSource;
 import com.chenjicheng.lmp.material.RequiredMaterialSource;
 import com.chenjicheng.lmp.material.UnknownRequiredMaterialSource;
 import com.chenjicheng.lmp.net.LmpPayloads;
@@ -41,6 +42,9 @@ public final class LmpServer
     {
         LmpPayloads.registerPayloadTypes();
         LmpCommand.register();
+
+        // 必须在服务器启动（也就是扫描调度器构造）之前接上：调度器持有这个引用
+        setRequiredSource(new LitematicRequiredMaterialSource());
 
         ServerLifecycleEvents.SERVER_STARTED.register(LmpServer::onServerStarted);
         ServerLifecycleEvents.SERVER_STOPPING.register(LmpServer::onServerStopping);
@@ -126,7 +130,8 @@ public final class LmpServer
     }
 
     /**
-     * 接入「所需材料」来源（M2 的原理图解析器）。只能在服务器启动前调用。
+     * 接入「所需材料」来源（M2 的原理图解析器）。只能在服务器启动前调用——
+     * {@code ScanScheduler} 在构造时就把引用拿走了，之后再换不会生效。
      */
     public static void setRequiredSource(RequiredMaterialSource source)
     {

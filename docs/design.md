@@ -79,22 +79,50 @@
 
 ## 4. 所需材料清单（服务端）
 
-Syncmatica 服务端保存 `.litematic`（`gameDir/syncmatics/<hash>.litematic`），
-placementId→hash 可用其公开 API 解析：
-`Syncmatica.getContext(Syncmatica.SERVER_CONTEXT).getSyncmaticManager().getPlacement(uuid).getHash()`。
+**已实现**，四个类：
 
-解析 `Regions.<name>.{BlockStatePalette, BlockStates, Position, Size}`，
-读取用 `NbtIo.readCompressed(path, NbtSizeTracker.ofUnlimitedBytes())`（单参重载不存在）。
-方块→物品先用 `state.getBlock().asItem().getDefaultStack()`（yarn；mojang 为 `getDefaultInstance`），
-M2 再补特殊方块表。
+| 类 | 职责 |
+| --- | --- |
+| `SchematicLocator` | placementId → `<gameDir>/syncmatics/<hash>.litematic`；Syncmatica 类引用隔离在私有嵌套类里，未装模组时不加载 |
+| `LitematicReader` | 纯 NBT 解析（不访问世界，可离 tick 线程）；文件 → `Litematic{formatVersion, dataVersion, regions}` |
+| `RequiredMaterialCalculator` | 方块状态 → 物品数量；镜像 Litematica `MaterialCache` / `MaterialListUtils` 的语义 |
+| `LitematicRequiredMaterialSource` | 实现 `RequiredMaterialSource`，串起前三步并缓存；由 `LmpServer.initialize()` 在服务器启动前接入 |
 
-**必须处理的三个坑**：
+**路径链路**：`placementId --getPlacement--> ServerPlacement.getHash() --> <gameDir>/syncmatics/<hash>.litematic`。
+文件名是**内容哈希**，不是显示名也不是 placement id。
 
-1. **子区域启用状态不同步**：Syncmatica 的 `SubRegionPlacementModification` 只带
-   name/position/rotation/mirror，不含 enabled。本项目按约束 6 统计**全量**，因此 UI 必须标注
-   「所需按全量原理图统计」。
-2. **老版本 `.litematic`** 需要调色板数据版本转换；M2 必须做出明确取舍（拒绝并提示，或移植转换）。
-3. **读不到/解析失败 → required = UNKNOWN**，绝不可退化为空清单（会显示 0% 进度，比不显示更误导）。
+**格式要点（已逐项对照上游核实）**：
+
+- 文件是 GZIP 压缩的未命名根 Compound：`Version`(格式版本, 1..7)、`MinecraftDataVersion`、`Metadata`、`Regions`。
+  读取用 `NbtIo.readCompressed(path, NbtSizeTracker.ofUnlimitedBytes())`（单参重载不存在）。
+- 每区域：`BlockStatePalette`(List&lt;Compound&gt;)、`BlockStates`(LongArray)、`Position`、`Size`。
+- **位宽不写进文件**，必须由调色板长度推导：`bits = max(2, 32 - numberOfLeadingZeros(n-1))`。
+  解包是 Litematica 自有的低位在前、可跨 long 的公式，**不是**原版 `PalettedContainer` 的 4 位对齐方案。
+- 索引 `= y*(sizeX*sizeZ) + z*sizeX + x`（x 最快）；`Position` 是相对偏移，`Size` 各轴可为负 → 按 min/max 归一化。
+- 调色板条目就是原版方块状态 NBT，直接 `NbtHelper.toBlockState(Registries.BLOCK, entry)`。
+
+**方块 → 物品**：默认 `state.getBlock().asItem().getDefaultStack()`（与上游 `MaterialCache` 在 world==null 时的分支一致），
+再叠加特殊方块表：含水 → 额外 1 个水桶；双台阶 = 2；雪层 = LAYERS；海龟蛋/海泡菜/蜡烛 = 属性数量；
+多面方块 = 可用面数；门/床/高植株只计下半；活塞头/移动活塞/传送门/末地门不计；耕地 → 泥土；
+水源/岩浆源(LEVEL=0) → 桶，流动不计；花盆 = 花盆 + 盆栽物；炼药锅按等级 = 炼药锅 + 瓶/桶。
+
+**三个坑的处理**：
+
+1. **子区域启用状态不同步**：Syncmatica 的 `SubRegionPlacementModification` 只带 name/position/rotation/mirror，
+   不含 enabled。本项目按约束 6 统计**全量**，界面用 `lmp.gui.status.full_schematic` 明确标注，
+   以免被当成缺陷。
+2. **老版本 `.litematic`**：判据是**实际能不能解析**而不是版本号。真正的危险是「静默算错」——
+   旧方块名在当前注册表里不存在时 `NbtHelper.toBlockState` 会静默回落成 AIR，所需清单算少、进度虚高。
+   因此拒绝条件是「调色板里出现**有名字却解析成 AIR**的条目」，它与版本号无关、直接命中该失败模式。
+   `MinecraftDataVersion` **高于**当前运行版本才直接拒绝（格式未知）；**低于**只告警后继续解析——
+   否则服务器每升级一次游戏版本，所有已共享的原理图都会永久变成「所需未知」。
+3. **读不到/解析失败 → required = UNKNOWN**：`LitematicRequiredMaterialSource` 在任一环节失败
+   （Syncmatica 未装 / placement 不存在 / 文件未同步 / 解析失败 / 算出的清单为空）都返回 `Optional.empty()`，
+   绝不用空清单冒充「什么都不需要」。失败结果缓存 60 秒（Syncmatica 先广播 placement、原理图随后落盘是正常时序），
+   成功结果永久缓存（文件按内容哈希命名，内容一变就是另一个 placement）。
+
+**潜影盒的口径不对称**（上游既有行为，非本模组缺陷）：所需侧每个潜影盒**方块**只计 1 个盒子、从不读 `TileEntities`；
+已收集侧反而数非空潜影盒的内容物并乘 `stack.getCount()`。两侧都按此实现。
 
 ## 5. 协议
 
@@ -198,14 +226,14 @@ JVM 按需解析常量池，没装 Litematica 的客户端不会碰到这些类�
 
 - **M0（本仓库当前状态）**：仓库/许可/构建/文档骨架，可编译。
 - **M1（已实现，MSPT 未实测）**：服务端异步扫描器 + 命令 + 客户端取数闭环。
-- **M2**：`.litematic` 解析与所需材料计算（含特殊方块表与老版本策略），进度 join。
+- **M2（已实现）**：`.litematic` 解析、所需材料计算（含特殊方块表与老版本策略）、进度 join。
 - **M3（已实现）**：`GuiMaterialList` 正式界面 + 自绘降级界面、热键与 `/lmpc` 入口、区域录入三前端、重扫策略（TTL/手动/限流）、i18n。
 
 ## 9. 风险
 
 - **所需材料准确性**：Litematica 的特殊方块处理（含水、台阶=2、雪层、门/床、耕地→泥土、
   岩浆/水→桶、花盆/炼药锅）与用户倍率仅存在于客户端；M1 的 `asItem()` 兜底会偏。
-- **MSPT 数字未实测**：2ms 预算与每容器微秒级均为估算，必须在真实服务端测量后再定。
+- **MSPT 数字未实测**：2ms 预算与每容器微秒级均为估算，必须在真实服务端测量后再定（已记为 LMP-4）。
 - **上游耦合**：`GuiMaterialList`、`SelectionManager` 均为内部包，无 API 稳定性承诺；已用「固定版本 + 可选依赖守卫 + 自绘降级」兜住，Syncmatica 按钮 mixin 未实现。
 - **许可**：Litematica / malilib / Servux 为 LGPL-3.0，本项目不复制其代码，只链接/继承。
 - **测量与测试缺口**：本机无真实服务器与 Spark；扫描预算与「不加载区块」不变量需要真实环境验证。
