@@ -303,8 +303,18 @@ public final class ScanScheduler
         int coverage = finished.coveragePermille();
         MaterialProgress.Status status = finished.resultStatus();
         long finishedAt = System.currentTimeMillis();
-        MaterialRegion updated = this.store.put(region.withScanResult(finishedAt, region.revision(), coverage));
+        Optional<MaterialRegion> maybeUpdated =
+                this.store.updateInMemory(region.withScanResult(finishedAt, region.revision(), coverage));
 
+        if (maybeUpdated.isEmpty())
+        {
+            // 扫描期间区域被删掉了：这一轮结果作废，绝不把它写回去
+            this.publishStatus(region.id(), new ScanStatus(Phase.IDLE, 0, 0, 0, region.revision()));
+            LmpMod.LOGGER.info("材料区「{}」在扫描期间被删除，结果丢弃", region.name());
+            return;
+        }
+
+        MaterialRegion updated = maybeUpdated.get();
         Optional<Map<Item, Integer>> required = this.cachedRequired(region);
 
         MaterialProgress progress = required

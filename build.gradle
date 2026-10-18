@@ -59,6 +59,14 @@ fabricApi {
     }
 }
 
+// 允许把 GameTest 单独挑出来跑：`./gradlew runGameTest -PlmpTestFilter=<测试名>`。
+// 测量类用例需要独占一批，否则同批其它测试的结构生成会污染 tick 时间基线。
+tasks.matching { it.name == "runGameTest" }.configureEach {
+    if (project.hasProperty("lmpTestFilter")) {
+        systemProperty "fabric-api.gametest.filter", project.property("lmpTestFilter")
+    }
+}
+
 processResources {
     inputs.property "version", project.version
 

@@ -101,6 +101,31 @@ public final class RegionStore
         return stored;
     }
 
+    /**
+     * 只更新内存里的区域，<b>不</b>落盘。
+     *
+     * <p>给扫描收尾用：一次扫描要改的只有 {@code lastScanAt} 与 {@code coveragePermille}，
+     * 这两个纯属界面展示信息，不值得在收尾那一 tick 上做一次完整的文件写入
+     * （实测这一次写盘把该 tick 顶到 19.5ms，接近半个 tick 预算）。真正的持久化由
+     * 区域增删改（{@link #put} / {@link #remove}）与服务器停止时的 {@link #save()} 负责。
+     *
+     * <p>契约：只更新<b>已存在</b>的区域，不新增。区域在扫描期间被删掉时返回空，
+     * 调用方据此丢弃这一轮结果——避免把刚删掉的区域又写回内存。
+     *
+     * @return 更新后的区域；区域不存在时为空
+     */
+    public java.util.Optional<MaterialRegion> updateInMemory(MaterialRegion region)
+    {
+        if (!this.regions.containsKey(region.id()))
+        {
+            return java.util.Optional.empty();
+        }
+
+        MaterialRegion stored = region.withRevision(++this.revisionCounter);
+        this.regions.put(stored.id(), stored);
+        return java.util.Optional.of(stored);
+    }
+
     public boolean remove(UUID id)
     {
         if (this.regions.remove(id) != null)

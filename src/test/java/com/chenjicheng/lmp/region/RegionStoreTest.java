@@ -149,4 +149,30 @@ class RegionStoreTest
         assertEquals(16, region.chunks()[1].getStartX());
         assertEquals(0, region.chunks()[1].getStartZ());
     }
+
+    @Test
+    @DisplayName("updateInMemory：只改内存、不落盘；区域不存在时不新增")
+    void updateInMemoryDoesNotPersistOrResurrect(@TempDir Path dir) throws IOException
+    {
+        RegionStore store = RegionStore.load(RegionStore.fileFor(dir));
+        MaterialRegion region = region("a", new BlockPos(0, 0, 0), new BlockPos(15, 0, 15));
+        MaterialRegion stored = store.put(region);
+
+        // 模拟一次扫描收尾：lastScanAt / coverage 变了
+        long scannedAt = 12345L;
+        MaterialRegion updated = store.updateInMemory(
+                stored.withScanResult(scannedAt, stored.revision(), 1000)).orElseThrow();
+
+        assertEquals(scannedAt, store.byId(stored.id()).orElseThrow().lastScanAt(), "内存里应当已更新");
+        assertTrue(updated.revision() > stored.revision(), "更新应当推进版本号");
+
+        // 落盘的内容必须仍是旧的：扫描收尾不做文件 I/O，持久化交给 put/remove/服务器停止
+        RegionStore reloaded = RegionStore.load(RegionStore.fileFor(dir));
+        assertTrue(reloaded.byId(stored.id()).isPresent(), "区域本身应当早已落盘");
+        assertEquals(0L, reloaded.byId(stored.id()).orElseThrow().lastScanAt(),
+                "扫描结果不应被写进文件（否则每个扫描收尾 tick 都要做一次文件写入）");
+
+        // 区域不存在时不得新增——这条挡住了「扫描收尾把已删除的区域写回内存」
+        assertTrue(store.updateInMemory(region("ghost", new BlockPos(0, 0, 0), new BlockPos(1, 0, 1))).isEmpty());
+    }
 }

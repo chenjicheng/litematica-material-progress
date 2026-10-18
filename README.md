@@ -9,8 +9,11 @@
 
 M0–M3 已实现：服务端异步分片扫描、`.litematic` 解析与所需材料、进度界面与区域录入入口。
 
-**尚未验证**：真实服务器上的 MSPT 实测（需要一台能跑真实存档的服务器与代表性负载），
+**尚未验证**：真实客户端的界面运行记录（需要图形客户端），
 以及用真实的 Litematica 导出文件做逐项对拍。详见 [docs/design.md](docs/design.md) 的风险一节。
+
+扫描开销已在真实服务端上实测：256 区块 / 16384 个容器的区域，每 tick 花在扫描上的时间是
+p50 2.00ms、p99 2.03ms，且前后已加载区块数完全不变（确认不加载区块）。
 
 ## 用法
 
@@ -78,7 +81,13 @@ M0–M3 已实现：服务端异步分片扫描、`.litematic` 解析与所需�
 ```bash
 ./gradlew build          # 产物：build/libs/litematica-material-progress-<version>.jar（已 remap，可直接放入 mods/）
 ./gradlew test           # 65 个单元测试
-./gradlew runGameTest    # 3 个 GameTest，跑在真实服务端上（gametest 源集，不进入发布产物）
+./gradlew runGameTest    # 5 个 GameTest，跑在真实服务端上（gametest 源集，不进入发布产物）
+```
+
+扫描开销测量会受同批其它测试干扰，单独跑一批拿干净数据（把测试名换成 `-PlmpTestFilter` 的值）：
+
+```bash
+./gradlew runGameTest   -PlmpTestFilter=lmp-gametest:lmp_scan_cost_game_test_measures_scan_cost_with_arealistic_load
 ```
 
 > 不要使用 `build/devlibs/` 里的 `-dev.jar`：它使用 yarn 名称，装进游戏会在首个界面初始化时 `NoClassDefFoundError`。

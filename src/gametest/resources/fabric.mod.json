@@ -6,7 +6,8 @@
   "environment": "*",
   "entrypoints": {
     "fabric-gametest": [
-      "com.chenjicheng.lmp.gametest.LmpGameTest"
+      "com.chenjicheng.lmp.gametest.LmpGameTest",
+      "com.chenjicheng.lmp.gametest.LmpScanCostGameTest"
     ]
   },
   "depends": {
