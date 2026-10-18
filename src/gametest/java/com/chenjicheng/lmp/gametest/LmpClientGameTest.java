@@ -16,12 +16,11 @@ import com.chenjicheng.lmp.LmpMod;
 import com.chenjicheng.lmp.client.ClientProgressStore;
 import com.chenjicheng.lmp.client.gui.LmpGuiMaterialList;
 import com.chenjicheng.lmp.client.gui.LmpMaterialList;
-import com.chenjicheng.lmp.client.gui.LmpProgressScreen;
 import com.chenjicheng.lmp.client.gui.LmpProgressScreens;
 import com.chenjicheng.lmp.net.LmpPayloads;
 
 /**
- * 在真实客户端上跑通两条界面路径（对应 YouTrack LMP-9）。
+ * 在真实客户端上跑通进度界面（对应 YouTrack LMP-9）。
  *
  * <p>这是服务端 GameTest 覆盖不到的部分：界面能不能构造、能不能渲染、有没有在渲染线程之外改 GUI、
  * 监听者会不会泄漏。跑完会留下两张截图作为人工复核的证据。
@@ -59,8 +58,7 @@ public class LmpClientGameTest implements FabricClientGameTest
             context.runOnClient(client -> seedStore(regionId));
             context.waitTicks(2);
 
-            verifyLitematicaPath(context, regionId);
-            verifyFallbackPath(context, regionId);
+            verifyProgressScreen(context, regionId);
             verifyNoListenerLeak(context, regionId);
         }
     }
@@ -81,14 +79,9 @@ public class LmpClientGameTest implements FabricClientGameTest
                 new LmpPayloads.Entry(Registries.ITEM.getId(Items.DIRT), 0, EXTRA_DIRT)));
     }
 
-    /** 路径一：复用 Litematica 的材料清单界面。 */
-    private static void verifyLitematicaPath(ClientGameTestContext context, UUID regionId)
+    /** 进度界面就是 Litematica 的材料清单界面（Litematica 是硬依赖，没有第二条路径）。 */
+    private static void verifyProgressScreen(ClientGameTestContext context, UUID regionId)
     {
-        if (!LmpProgressScreens.usesLitematicaGui())
-        {
-            throw new AssertionError("开发环境里应当装了 Litematica，否则这条路径根本没被覆盖到");
-        }
-
         context.runOnClient(client -> LmpProgressScreens.open(regionId, "主基地仓库"));
         context.waitForScreen(LmpGuiMaterialList.class);
         context.waitTicks(5);
@@ -114,6 +107,12 @@ public class LmpClientGameTest implements FabricClientGameTest
                 throw new AssertionError("标题应含数量进度 67.1%（1140/1700），实际：" + title);
             }
 
+            // 服务端按全量原理图统计，界面必须标注，否则玩家拿自己的材料清单一对就会当成缺陷
+            if (!title.contains("full schematic"))
+            {
+                throw new AssertionError("标题应标注「所需按全量原理图统计」，实际：" + title);
+            }
+
             // 关键一条：上游会用玩家背包数量覆盖 Available 列（玩家背包是空的 → 全是 0）。
             // 本模组重写 getMaterialsAll() 返回独立副本挡掉了它，因此界面显示的必须仍是区域里的数量。
             LmpMaterialList list = screen.materialList();
@@ -132,29 +131,11 @@ public class LmpClientGameTest implements FabricClientGameTest
             }
         });
 
-        Path shot = context.takeScreenshot("lmp-progress-litematica");
-        LmpMod.LOGGER.info("[lmp-client] Litematica 路径截图：{}", shot);
-    }
-
-    /** 路径二：没装 Litematica 时用的自绘界面。 */
-    private static void verifyFallbackPath(ClientGameTestContext context, UUID regionId)
-    {
-        context.runOnClient(client -> client.setScreen(new LmpProgressScreen(regionId)));
-        context.waitForScreen(LmpProgressScreen.class);
-        context.waitTicks(5);
-
-        context.runOnClient(client ->
-        {
-            if (!(client.currentScreen instanceof LmpProgressScreen))
-            {
-                throw new AssertionError("应打开自绘界面，实际 " + client.currentScreen);
-            }
-        });
-
-        Path shot = context.takeScreenshot("lmp-progress-fallback");
-        LmpMod.LOGGER.info("[lmp-client] 自绘路径截图：{}", shot);
+        Path shot = context.takeScreenshot("lmp-progress");
+        LmpMod.LOGGER.info("[lmp-client] 进度界面截图：{}", shot);
 
         context.runOnClient(client -> client.setScreen(null));
+        context.waitTicks(2);
     }
 
     /** 反复开关界面后监听者必须回到 0：否则每开一次界面就泄漏一个监听者。 */
@@ -164,12 +145,6 @@ public class LmpClientGameTest implements FabricClientGameTest
         {
             context.runOnClient(client -> LmpProgressScreens.open(regionId, "主基地仓库"));
             context.waitForScreen(LmpGuiMaterialList.class);
-            context.waitTicks(2);
-            context.runOnClient(client -> client.setScreen(null));
-            context.waitTicks(2);
-
-            context.runOnClient(client -> client.setScreen(new LmpProgressScreen(regionId)));
-            context.waitForScreen(LmpProgressScreen.class);
             context.waitTicks(2);
             context.runOnClient(client -> client.setScreen(null));
             context.waitTicks(2);

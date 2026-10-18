@@ -91,6 +91,16 @@ public class LmpGuiMaterialList extends GuiMaterialList
         String items = StringUtils.translate("lmp.gui.progress.items",
                 String.format("%.1f", progress.itemProgress() * 100.0D),
                 progress.cappedPresent(), progress.totalRequired());
-        return " | " + types + " | " + items;
+
+        // 服务端按全量原理图统计，不看玩家在 Litematica 里禁用了哪些子区域。
+        // 不标出来的话，玩家拿自己的材料清单一对，数字对不上就会当成缺陷报过来。
+        String note = " | " + StringUtils.translate("lmp.gui.status.full_schematic");
+
+        if (progress.status() == MaterialProgress.Status.PARTIAL)
+        {
+            note += " · " + StringUtils.translate("lmp.gui.status.partial", progress.coveragePermille());
+        }
+
+        return " | " + types + " | " + items + note;
     }
 }

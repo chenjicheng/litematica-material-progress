@@ -48,14 +48,16 @@ p50 2.00ms、p99 2.03ms，且前后已加载区块数完全不变（确认不加
 - `/lmpc refresh [名称]`：强制重扫（受服务端按玩家限流）。
 
 界面复用 Litematica 的材料清单：**Total = 所需 / Missing = 还差 / Available = 已收集**，
-标题栏同时给出「种类进度」与「数量进度」。没装 Litematica 时自动降级为自绘界面，功能等价。
+标题栏同时给出「种类进度」「数量进度」，并标注「全量原理图」——服务端统计全量，
+不看你在 Litematica 里禁用了哪些子区域，所以两边数字可能对不上。
 
 > 注意：`Available` 一列在本模组里是**材料区内已收集**，不是玩家背包里的数量。
 
 ### 服务端命令
 
 `/lmp region pos1|pos2|create|bind|list|info|delete`、`/lmp scan [名称]`、`/lmp status`
-（默认要求权限等级 2）。服务端只需要 Fabric API；Litematica / Syncmatica 缺失时功能降级，不会崩。
+（默认要求权限等级 2）。**服务端只需要 Fabric API**（专用服务器上不会装 Litematica）；
+Syncmatica 缺失时不会崩，只是所需材料显示为未知；客户端没装 Litematica 时点击进度入口会给出明确提示。
 
 ## 设计要点（详见 docs/design.md）
 
@@ -70,9 +72,9 @@ p50 2.00ms、p99 2.03ms，且前后已加载区块数完全不变（确认不加
 | 组件 | 作用 | 必需 |
 | --- | --- | --- |
 | Fabric API | 事件、网络、命令 | 是（两端） |
-| Litematica（sakura-ryoko 的 `LTS/1.21.11`） | 所需材料清单、进度界面复用 | 客户端（缺失则用自绘界面） |
+| Litematica（sakura-ryoko 的 `LTS/1.21.11`） | 所需材料清单、进度界面复用 | 客户端需要（按 `0.26.x` 构建） |
 | Syncmatica（同上分支） | 共享放置与 placementId | 需要「所需材料」时（两端） |
-| malilib | GUI 组件 | 客户端（随 Litematica 一起装） |
+| malilib | GUI 组件 | 客户端需要（随 Litematica 一起装，按 `0.27.x` 构建） |
 
 ## 构建与验证
 

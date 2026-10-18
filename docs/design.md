@@ -178,6 +178,7 @@
   否则重启后客户端缓存的 `(regionId, revision)` 与服务端相同，会渲染空白或旧区域数据。
 - 包大小：约 2000 条目 ≈ 12–16 KB，S2C 上限 1 MiB；更大区域用 Fabric splitter。
 - 降级：`canSend` 检查；服务端无本模组时客户端显示明确状态、不崩。区域定义/删除/扫描走**命令**而非 payload。
+  （这里说的降级是**协议**层的：对方没装本模组时不要抛异常。界面本身没有降级路径，见 6.1。）
 - **版本一致性**：服务端只在快照的 revision 与区域当前 revision 一致时才下发（区域改名/换绑定/改范围后
   旧快照描述的已经不是当前区域）；客户端也拒绝 revision 更小的乱序快照。
 - **权限**：只读地取快照对所有玩家开放；`forceRescan` 会让服务端做一次全区域扫描，与 `/lmp scan` 用同一道
@@ -209,12 +210,22 @@
 
 `reCreateMaterialList()` = 重读客户端缓存 + 向服务端要一次快照，**绝不触发扫描**：
 是否真的重扫由服务端按快照 TTL 决定，因此反复点「刷新」不会变成扫描风暴。
-强制重扫走 `/lmpc refresh` 或回退界面上的按钮（带 `forceRescan`）。
+强制重扫走 `/lmpc refresh` 菜单外的入口（`forceRescan`）。
 
-**降级路径**：没装 Litematica（或 malilib）时用自绘的 `LmpProgressScreen`
-（两个进度维度、逐物品所需/已收集/还差、额外囤积、扫描进度、强制重扫）。
-可选依赖必须真的可选——`LmpMaterialList` / `LmpSelectionBridge` 只在对应分支体里被引用，
-JVM 按需解析常量池，没装 Litematica 的客户端不会碰到这些类。
+标题后缀额外标注两件容易被误当成缺陷的事：**「全量原理图」**（服务端不看玩家在 Litematica 里禁用了哪些
+子区域，所以两边数字可能对不上）与**「结果不完整，覆盖率 x‰」**（有区块没加载）。
+
+**没有降级界面**。曾经写过一条自绘的降级路径（没装 Litematica 时用），已经删掉：
+它只挡「Litematica 不在」，**挡不住**「Litematica 在但内部包改了签名」——后者才是更可能发生的坏法，
+而那时 `isModLoaded` 仍然返回 true，照样走上游分支。为覆盖一个边缘场景维护第二套 400 行界面不划算。
+
+**但 Litematica 也进不了 `depends`**（实测）：本模组的扫描在服务端跑，专用服务器上不会装 Litematica，
+而 Fabric 的 `depends` 没有按环境区分的能力。实测把它写进 `depends` 之后，专用服务器直接以
+`HARD_DEP_NO_CANDIDATE lmp {depends litematica}` 拒绝加载本模组——功能整个没了。
+
+所以最终形态是：Litematica / malilib 留在 `suggests` 并带上版本范围（`>=0.26.16 <0.27.0-` /
+`>=0.27.20 <0.28.0-`，仅供人看），客户端在打开界面时做两件小事——
+没装就给一句明确提示，装了但 API 变了就兜住 `LinkageError` 并提示（见 6.1 的 `LmpProgressScreens`）。
 
 ### 6.2 入口
 
@@ -274,7 +285,7 @@ JVM 按需解析常量池，没装 Litematica 的客户端不会碰到这些类�
 - **M0（本仓库当前状态）**：仓库/许可/构建/文档骨架，可编译。
 - **M1（已实现，MSPT 未实测）**：服务端异步扫描器 + 命令 + 客户端取数闭环。
 - **M2（已实现）**：`.litematic` 解析、所需材料计算（含特殊方块表与老版本策略）、进度 join。
-- **M3（已实现）**：`GuiMaterialList` 正式界面 + 自绘降级界面、热键与 `/lmpc` 入口、区域录入三前端、重扫策略（TTL/手动/限流）、i18n。
+- **M3（已实现）**：`GuiMaterialList` 正式界面、热键与 `/lmpc` 入口、区域录入三前端、重扫策略（TTL/手动/限流）、i18n。
 
 **自动化验证**：`./gradlew test`（66 个单元测试）+ `./gradlew runGameTest`（5 个 GameTest，跑在真实服务端上：
 扫描真实区块里的方块实体、取消后不复活已删除区域、正常完成的扫描照常落库、以及扫描开销测量）。
@@ -295,6 +306,6 @@ GameTest 位于独立的 `gametest` 源集（`fabricApi.configureTests`），不
 - ~~**MSPT 数字未实测**~~ → **已实测**（见第 3 节的表格）：2ms 预算成立，每容器约 0.4µs。
   测量环境是本机开发机（真实专用服务端 + 游戏测试框架），不是生产服务器；文件系统与 AV 行为差异较大，
   换机器后建议重跑 `runGameTest` 复核。
-- **上游耦合**：`GuiMaterialList`、`SelectionManager` 均为内部包，无 API 稳定性承诺；已用「固定版本 + 可选依赖守卫 + 自绘降级」兜住，Syncmatica 按钮 mixin 未实现。
+- **上游耦合**：`GuiMaterialList`、`SelectionManager` 均为内部包，无 API 稳定性承诺。取舍：**不做降级界面**（它挡不住签名变化，而 `depends` 又会把专用服务器挡在门外），只在打开界面时兜住 `LinkageError` 并给出明确提示。Syncmatica 按钮 mixin 未实现。
 - **许可**：Litematica / malilib / Servux 为 LGPL-3.0，本项目不复制其代码，只链接/继承。
 - **测量与测试缺口**：本机无真实服务器与 Spark；扫描预算与「不加载区块」不变量需要真实环境验证。

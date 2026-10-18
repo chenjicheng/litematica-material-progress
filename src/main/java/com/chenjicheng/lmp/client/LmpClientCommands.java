@@ -20,6 +20,7 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 
+import com.chenjicheng.lmp.client.gui.LmpProgressScreens;
 import com.chenjicheng.lmp.client.gui.LmpSelectionBridge;
 import com.chenjicheng.lmp.material.MaterialProgress;
 import com.chenjicheng.lmp.net.LmpClientNetworking;
@@ -37,7 +38,7 @@ import com.chenjicheng.lmp.net.LmpPayloads;
  */
 public final class LmpClientCommands
 {
-    private static final String LITEMATICA = "litematica";
+    /** Syncmatica 仍是可选依赖：没有它也能扫描，只是所需材料未知。 */
     private static final String SYNCMATICA = "syncmatica";
 
     private LmpClientCommands()
@@ -168,9 +169,9 @@ public final class LmpClientCommands
 
     private static int fromSelection(CommandContext<FabricClientCommandSource> context)
     {
-        if (!FabricLoader.getInstance().isModLoaded(LITEMATICA))
+        if (!LmpProgressScreens.litematicaAvailable())
         {
-            error(context, Text.translatable("lmp.command.region.no_litematica"));
+            error(context, Text.translatable("lmp.gui.status.needs_litematica"));
             return 0;
         }
 
