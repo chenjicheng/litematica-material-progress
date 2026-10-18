@@ -283,6 +283,11 @@ GameTest 位于独立的 `gametest` 源集（`fabricApi.configureTests`），不
 测量类用例会受同批其它测试的干扰（同一批的结构都在同一个区域、并发消耗 tick），
 因此可以用 `./gradlew runGameTest -PlmpTestFilter=<测试名>` 把它单独跑一批；上面表格里的数字来自单独跑。
 
+客户端界面用 `./gradlew runClientGameTest` 验证（`LmpClientGameTest`，同样在 gametest 源集）。
+它跑真实客户端：注入一份受控快照 → 打开两条界面路径各渲染若干帧 → 断言 Litematica 路径的标题同时含有
+「种类进度 33.3%（1/3）」与「数量进度 67.1%（1140/1700）」→ 反复开关三次后断言监听者回到 0 →
+留下两张截图。**不并入 `build`**：它会拉起一个图形客户端，只适合人工触发。
+
 ## 9. 风险
 
 - **所需材料准确性**：Litematica 的特殊方块处理（含水、台阶=2、雪层、门/床、耕地→泥土、

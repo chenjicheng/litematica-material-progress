@@ -76,6 +76,17 @@ public final class ClientProgressStore
         this.listeners.remove(listener);
     }
 
+    /**
+     * 当前注册的监听者数量。
+     *
+     * <p>界面在打开时注册、关闭时注销；这个数字应当总是回到 0，否则每开关一次界面就泄漏一个监听者。
+     * 供诊断与客户端 GameTest 断言使用。
+     */
+    public int listenerCount()
+    {
+        return this.listeners.size();
+    }
+
     private void notifyListeners()
     {
         for (Runnable listener : this.listeners)

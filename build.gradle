@@ -54,7 +54,8 @@ fabricApi {
         createSourceSet = true
         modId = "lmp-gametest"
         enableGameTests = true
-        enableClientGameTests = false
+        // 客户端 GameTest 跑真实客户端，用来验证两条界面路径并留下截图
+        enableClientGameTests = true
         eula = true
     }
 }

@@ -81,8 +81,12 @@ p50 2.00ms、p99 2.03ms，且前后已加载区块数完全不变（确认不加
 ```bash
 ./gradlew build          # 产物：build/libs/litematica-material-progress-<version>.jar（已 remap，可直接放入 mods/）
 ./gradlew test           # 65 个单元测试
-./gradlew runGameTest    # 5 个 GameTest，跑在真实服务端上（gametest 源集，不进入发布产物）
+./gradlew runGameTest        # 5 个 GameTest，跑在真实服务端上（gametest 源集，不进入发布产物）
+./gradlew runClientGameTest  # 1 个客户端 GameTest：真实客户端里跑两条界面路径并留下截图
 ```
+
+客户端用例会拉起一个图形客户端，因此不并入 `build`，需要人工触发；截图落在
+`build/run/clientGameTest/screenshots/`。
 
 扫描开销测量会受同批其它测试干扰，单独跑一批拿干净数据（把测试名换成 `-PlmpTestFilter` 的值）：
 
