@@ -30,6 +30,12 @@ public class LmpGuiMaterialList extends GuiMaterialList
         ClientProgressStore.get().addListener(this.storeListener);
     }
 
+    /** 本界面正在展示的材料清单；供诊断与客户端 GameTest 断言使用。 */
+    public LmpMaterialList materialList()
+    {
+        return this.list;
+    }
+
     private void onStoreChanged()
     {
         this.list.apply(this.list.progress());

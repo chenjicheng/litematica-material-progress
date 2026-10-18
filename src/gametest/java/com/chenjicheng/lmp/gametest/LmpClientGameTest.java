@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
@@ -14,6 +15,7 @@ import net.minecraft.util.math.BlockPos;
 import com.chenjicheng.lmp.LmpMod;
 import com.chenjicheng.lmp.client.ClientProgressStore;
 import com.chenjicheng.lmp.client.gui.LmpGuiMaterialList;
+import com.chenjicheng.lmp.client.gui.LmpMaterialList;
 import com.chenjicheng.lmp.client.gui.LmpProgressScreen;
 import com.chenjicheng.lmp.client.gui.LmpProgressScreens;
 import com.chenjicheng.lmp.net.LmpPayloads;
@@ -46,12 +48,21 @@ public class LmpClientGameTest implements FabricClientGameTest
     {
         final UUID regionId = UUID.randomUUID();
 
-        context.runOnClient(client -> seedStore(regionId));
-        context.waitTicks(2);
+        // 必须进一个真实世界让 client.player 不为 null：
+        // 上游 GuiMaterialList 的构造函数会调 updateAvailableCounts(getMaterialsAll(), player)，
+        // 而它在 player == null 时直接返回——站在标题界面上根本测不到这个覆盖行为。
+        try (TestSingleplayerContext singleplayer = context.worldBuilder().create())
+        {
+            context.waitFor(client -> client.player != null);
+            context.waitTicks(20);
 
-        verifyLitematicaPath(context, regionId);
-        verifyFallbackPath(context, regionId);
-        verifyNoListenerLeak(context, regionId);
+            context.runOnClient(client -> seedStore(regionId));
+            context.waitTicks(2);
+
+            verifyLitematicaPath(context, regionId);
+            verifyFallbackPath(context, regionId);
+            verifyNoListenerLeak(context, regionId);
+        }
     }
 
     /** 造一份快照：种类进度 1/3、数量进度 1140/1700，两个维度都不是 0% 或 100%。 */
@@ -101,6 +112,23 @@ public class LmpClientGameTest implements FabricClientGameTest
             if (!title.contains("67.1"))
             {
                 throw new AssertionError("标题应含数量进度 67.1%（1140/1700），实际：" + title);
+            }
+
+            // 关键一条：上游会用玩家背包数量覆盖 Available 列（玩家背包是空的 → 全是 0）。
+            // 本模组重写 getMaterialsAll() 返回独立副本挡掉了它，因此界面显示的必须仍是区域里的数量。
+            LmpMaterialList list = screen.materialList();
+            int stone = list.displayedCollected(Items.STONE);
+            int dirt = list.displayedCollected(Items.DIRT);
+
+            if (stone != STONE_PRESENT)
+            {
+                throw new AssertionError("Available 列应显示区域内已收集 " + STONE_PRESENT
+                        + "，实际 " + stone + "（若为 0 说明被玩家背包数量覆盖了）");
+            }
+
+            if (dirt != EXTRA_DIRT)
+            {
+                throw new AssertionError("额外囤积应显示 " + EXTRA_DIRT + "，实际 " + dirt);
             }
         });
 

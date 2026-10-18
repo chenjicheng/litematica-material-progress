@@ -116,6 +116,25 @@ public class LmpMaterialList extends MaterialListBase
         return this.safeCopy;
     }
 
+    /**
+     * 真实列表（也就是界面实际渲染的那份）里，某个物品显示的「已收集」数量；不在列表里返回 -1。
+     *
+     * <p>供诊断与客户端 GameTest 使用：上游会拿 {@link #getMaterialsAll()} 去覆盖 Available 列，
+     * 这个口子读的是没被覆盖的那一份，因此能直接验证防护是否生效。
+     */
+    public int displayedCollected(Item item)
+    {
+        for (MaterialListEntry entry : this.materialListAll)
+        {
+            if (entry.getStack().isOf(item))
+            {
+                return entry.getCountAvailable();
+            }
+        }
+
+        return -1;
+    }
+
     private static ImmutableList<MaterialListEntry> buildSafeCopy(List<MaterialListEntry> entries)
     {
         List<MaterialListEntry> copy = new ArrayList<>(entries.size());
