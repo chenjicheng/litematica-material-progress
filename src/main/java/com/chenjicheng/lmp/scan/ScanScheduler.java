@@ -90,7 +90,6 @@ public final class ScanScheduler
     private @Nullable MaterialRegion scanningRegion;
     private @Nullable UUID queuedRegionId;
     private int statusTickCounter;
-    private long finishedAtMs;
 
     public ScanScheduler(RegionStore store, RequiredMaterialSource requiredSource)
     {
@@ -108,6 +107,20 @@ public final class ScanScheduler
     public Optional<MaterialProgress> snapshot(UUID regionId)
     {
         return Optional.ofNullable(this.snapshots.get(regionId));
+    }
+
+    /**
+     * 该区域<b>当前版本</b>的快照。
+     *
+     * <p>区域改过（改名、换绑定、改范围）之后 revision 会前进，此时内存里那份旧快照描述的已经不是
+     * 当前区域，继续下发会让界面显示上一版区域的数据。所以版本对不上就当作没有快照。
+     */
+    public Optional<MaterialProgress> currentSnapshot(MaterialRegion region)
+    {
+        MaterialProgress snapshot = this.snapshots.get(region.id());
+        return snapshot != null && snapshot.revision() == region.revision()
+                ? Optional.of(snapshot)
+                : Optional.empty();
     }
 
     public Optional<ScanStatus> status(UUID regionId)
@@ -152,7 +165,7 @@ public final class ScanScheduler
         return Optional.empty();
     }
 
-    /** 取消当前扫描（区域变更、请求者退出、服务器关闭等）。 */
+    /** 取消当前扫描（服务器关闭等「全部停下」的场景）。 */
     public void cancel()
     {
         if (this.scanner != null)
@@ -161,6 +174,31 @@ public final class ScanScheduler
         }
 
         this.queuedRegionId = null;
+    }
+
+    /**
+     * 只取消正在扫描的<b>这个</b>区域。
+     *
+     * <p>删除区域时必须用它而不是 {@link #cancel()}：后者会把另一个无关区域的扫描一起打断，
+     * 而那个扫描既没被请求取消、也没人会重新触发。
+     *
+     * @return 是否确实取消了一个正在进行的扫描
+     */
+    public boolean cancelRegion(UUID regionId)
+    {
+        if (this.scanningRegion != null && this.scanningRegion.id().equals(regionId))
+        {
+            this.cancel();
+            return true;
+        }
+
+        if (regionId.equals(this.queuedRegionId))
+        {
+            this.queuedRegionId = null;
+            return true;
+        }
+
+        return false;
     }
 
     public void onServerStopping()
@@ -244,10 +282,19 @@ public final class ScanScheduler
 
         this.scanner = null;
         this.scanningRegion = null;
-        this.finishedAtMs = System.currentTimeMillis();
 
         if (finished == null || region == null)
         {
+            return;
+        }
+
+        if (finished.isCancelled())
+        {
+            // 取消 = 结果已经没人要了（区域被删掉/服务器在停）。此时计数是半成品，
+            // 若照常 store.put(...) 会把刚被删除的区域又写回存储里。
+            this.publishStatus(region.id(), new ScanStatus(Phase.IDLE, finished.chunksDone(),
+                    finished.chunksTotal(), finished.containersScanned(), region.revision()));
+            LmpMod.LOGGER.info("材料区「{}」的扫描已取消，结果丢弃", region.name());
             return;
         }
 
@@ -255,7 +302,8 @@ public final class ScanScheduler
         Map<Item, Long> counts = finished.counts();
         int coverage = finished.coveragePermille();
         MaterialProgress.Status status = finished.resultStatus();
-        MaterialRegion updated = this.store.put(region.withScanResult(this.finishedAtMs, region.revision(), coverage));
+        long finishedAt = System.currentTimeMillis();
+        MaterialRegion updated = this.store.put(region.withScanResult(finishedAt, region.revision(), coverage));
 
         Optional<Map<Item, Integer>> required = this.cachedRequired(region);
 
@@ -308,7 +356,18 @@ public final class ScanScheduler
                 this.requiredCache.put(placementId, result);
             }
 
-            server.execute(() -> this.onRequiredParsed(server, region.id(), result.isPresent()));
+            // 服务器停止后 MinecraftServer.execute 会直接在调用线程上跑，等于在工作线程上发布结果；
+            // 因此这里先确认服务器还在跑，否则丢弃这次解析（下次扫描会重新解析）
+            if (server.isRunning())
+            {
+                server.execute(() ->
+                {
+                    if (server.isRunning())
+                    {
+                        this.onRequiredParsed(server, region.id(), result.isPresent());
+                    }
+                });
+            }
         });
     }
 
@@ -352,7 +411,12 @@ public final class ScanScheduler
             return;
         }
 
-        MaterialProgress filled = MaterialProgress.join(required, existing.present(), existing.status(),
+        // 状态必须重算：这份快照当初是「所需未知」时发布的，直接沿用会让界面在材料已经算出来之后
+        // 仍然显示「所需未知」。已知所需之后，剩下的不确定性只有扫描覆盖不全。
+        MaterialProgress.Status status = existing.coveragePermille() >= 1000
+                ? MaterialProgress.Status.COMPLETE
+                : MaterialProgress.Status.PARTIAL;
+        MaterialProgress filled = MaterialProgress.join(required, existing.present(), status,
                 existing.coveragePermille(), region.revision());
         this.snapshots.put(regionId, filled);
         this.notifySnapshot(regionId, filled);
@@ -398,12 +462,18 @@ public final class ScanScheduler
         }
     }
 
-    /** 客户端来取快照：过旧则顺带触发一次重扫（重扫策略的 TTL 部分）。 */
+    /**
+     * 客户端来取快照：过旧则顺带触发一次重扫（重扫策略的 TTL 部分）。
+     *
+     * <p>过期判定<b>只</b>看这个区域自己的上次扫描时间与版本号。早先这里混进了「全局最后一次扫描完成时间」，
+     * 结果只要刚扫过<b>任意</b>一个区域，其它区域的旧快照都会被当成新鲜的，TTL 重扫被永久抑制。
+     */
     public void onSnapshotRequested(MinecraftServer server, MaterialRegion region)
     {
         MaterialProgress existing = this.snapshots.get(region.id());
         boolean stale = existing == null
-                || System.currentTimeMillis() - Math.max(region.lastScanAt(), this.finishedAtMs) > SNAPSHOT_TTL_MS;
+                || existing.revision() != region.revision()
+                || System.currentTimeMillis() - region.lastScanAt() > SNAPSHOT_TTL_MS;
 
         if (stale && !this.isScanning(region.id()))
         {

@@ -167,6 +167,14 @@ public final class ClientProgressStore
             }
         }
 
+        // 乱序到达的旧快照不能覆盖新快照：否则界面会退回上一版数据
+        MaterialProgress existing = this.progress.get(regionId);
+
+        if (existing != null && revision < existing.revision())
+        {
+            return;
+        }
+
         this.progress.put(regionId, MaterialProgress.join(required, present, status, coveragePermille, revision));
         this.notifyListeners();
     }

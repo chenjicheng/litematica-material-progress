@@ -23,9 +23,9 @@
   "lmp.error.region.too_many_chunks": "区域跨越太多区块（%s 个），请缩小范围",
   "lmp.error.region.empty_name": "材料区名字不能为空",
   "lmp.gui.title": "材料收集进度 - %s",
-  "lmp.gui.column.required": "所需",
-  "lmp.gui.column.present": "已收集",
-  "lmp.gui.column.missing": "还差",
+  "lmp.gui.column.required": "需 %s",
+  "lmp.gui.column.present": "有 %s",
+  "lmp.gui.column.missing": "差 %s",
   "lmp.gui.progress.types": "种类进度 %s%%（%s/%s）",
   "lmp.gui.progress.items": "数量进度 %s%%（%s/%s）",
   "lmp.gui.status.server_missing": "服务端未安装本模组，无法获取进度",
@@ -36,7 +36,6 @@
   "lmp.gui.status.unknown_required": "所需材料未知（服务端读不到原理图）",
   "lmp.gui.status.partial": "结果不完整：有区块未加载（覆盖率 %s‰）",
   "lmp.gui.button.refresh": "刷新扫描",
-  "lmp.gui.button.select_region": "用当前选区设为材料区",
   "lmp.gui.label.last_scan": "上次扫描：%s",
   "lmp.gui.label.never_scanned": "尚未扫描",
   "lmp.gui.section.extra": "额外囤积（原理图不需要）",
@@ -57,5 +56,7 @@
   "lmp.gui.button.close": "关闭",
   "lmp.gui.button.next_region": "下一个材料区",
   "lmp.gui.list.header": "材料区列表：",
-  "lmp.gui.list.open": "[打开]"
+  "lmp.gui.list.open": "[打开]",
+  "lmp.command.scan.not_permitted": "你没有强制重扫的权限",
+  "lmp.command.region.save_failed": "已记在内存里，但写入区域文件失败——重启后会丢失（详见服务端日志）"
 }

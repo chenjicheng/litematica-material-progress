@@ -42,6 +42,10 @@ public final class RegionScanner
     private int chunkIndex;
     private List<BlockPos> chunkPositions = List.of();
     private int positionIndex;
+    /** 当前区块是否已经取过方块实体快照。 */
+    private boolean chunkStarted;
+    /** 当前区块的位置是否已全部走完；只取过快照就丢下不算「已扫描」。 */
+    private boolean chunkExhausted;
     private int scannedChunks;
     private int skippedChunks;
     private int containersScanned;
@@ -81,8 +85,9 @@ public final class RegionScanner
 
             if (chunk == null)
             {
-                // 未加载：不强制加载，跳过并让游标前进
-                if (this.positionIndex == 0 && this.chunkPositions.isEmpty())
+                // 未加载：不强制加载，跳过并让游标前进。
+                // 从没开始过的区块在这里计数；扫到一半才被卸载的区块由 enterNextChunk() 计入 skipped。
+                if (!this.chunkStarted)
                 {
                     this.skippedChunks++;
                 }
@@ -91,11 +96,11 @@ public final class RegionScanner
                 continue;
             }
 
-            if (this.chunkPositions.isEmpty() && this.positionIndex == 0)
+            if (!this.chunkStarted)
             {
                 // 该区块的方块实体位置快照：BlockPos 不可变，可以安全跨 tick 保留
                 this.chunkPositions = new ArrayList<>(chunk.getBlockEntities().keySet());
-                this.scannedChunks++;
+                this.chunkStarted = true;
             }
 
             while (this.positionIndex < this.chunkPositions.size())
@@ -119,6 +124,7 @@ public final class RegionScanner
                 }
             }
 
+            this.chunkExhausted = true;
             this.enterNextChunk();
         }
 
@@ -126,11 +132,32 @@ public final class RegionScanner
         return true;
     }
 
+    /**
+     * 结算当前区块并前进到下一个。
+     *
+     * <p>只有把区块内的位置<b>全部走完</b>才算「已扫描」；取了快照却中途丢下（例如区块被卸载、
+     * 或跨 tick 后拿不到该区块）必须记成「跳过」，否则覆盖率会报 1000‰、状态报 COMPLETE，
+     * 而实际上有一整片容器从未被统计——这比报「不完整」危险得多。
+     */
     private void enterNextChunk()
     {
+        if (this.chunkStarted)
+        {
+            if (this.chunkExhausted)
+            {
+                this.scannedChunks++;
+            }
+            else
+            {
+                this.skippedChunks++;
+            }
+        }
+
         this.chunkIndex++;
         this.chunkPositions = List.of();
         this.positionIndex = 0;
+        this.chunkStarted = false;
+        this.chunkExhausted = false;
     }
 
     private void scanPosition(WorldChunk chunk, BlockPos pos)
@@ -148,6 +175,17 @@ public final class RegionScanner
             ContainerCounter.countContainer(inventory, this.counts);
             this.containersScanned++;
         }
+    }
+
+    /**
+     * 是否已被取消。
+     *
+     * <p>{@link #advance(long)} 在取消时也返回 true（表示「不再需要推进」），
+     * 调用方必须用本方法区分「扫完了」和「被取消了」——被取消的计数是半成品，不能当成结果发布。
+     */
+    public boolean isCancelled()
+    {
+        return this.cancelled;
     }
 
     public void cancel()

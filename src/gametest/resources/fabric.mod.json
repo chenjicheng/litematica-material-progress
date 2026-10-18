@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "lmp-gametest",
+  "version": "1.0.0",
+  "name": "Litematica Material Progress GameTests",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": [
+      "com.chenjicheng.lmp.gametest.LmpGameTest"
+    ]
+  },
+  "depends": {
+    "lmp": "*"
+  }
+}

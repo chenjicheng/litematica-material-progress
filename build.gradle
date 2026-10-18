@@ -36,11 +36,27 @@ dependencies {
     modLocalRuntime "maven.modrinth:litematica:${project.litematica_version}"
     modLocalRuntime "maven.modrinth:syncmatica:${project.syncmatica_version}"
 
+    // Syncmatica 的命令注册需要 fabric-permissions-api，否则开发运行期启动服务端会
+    // NoClassDefFoundError: me/lucko/fabric/api/permissions/v0/Permissions（正式环境由玩家自行安装）
+    modLocalRuntime "me.lucko:fabric-permissions-api:${project.fabric_permissions_api_version}"
+
     // 让测试运行在 Fabric 运行时中：Minecraft 的 yarn 映射存在跨包 package-private 访问，
     // 纯 JUnit JVM 下会 IllegalAccessError，必须由 loader 的 dev 期变换处理。
     testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
     testImplementation "org.junit.jupiter:junit-jupiter:5.13.4"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+// GameTest：在真实服务端上验证「扫描真实区块里的方块实体」与「取消后不复活已删除区域」。
+// 单测跑不了这两条——它们需要真实的 ServerWorld / MinecraftServer。
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "lmp-gametest"
+        enableGameTests = true
+        enableClientGameTests = false
+        eula = true
+    }
 }
 
 processResources {

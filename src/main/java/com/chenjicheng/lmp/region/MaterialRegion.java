@@ -73,17 +73,32 @@ public record MaterialRegion(
         return new Box(pos1.getX(), pos1.getY(), pos1.getZ(), pos2.getX() + 1, pos2.getY() + 1, pos2.getZ() + 1);
     }
 
-    public long volume()
+    /**
+     * 单轴跨度（含两端）。
+     *
+     * <p>必须用 long 计算：{@code pos2 - pos1} 在 int 域里会溢出——极端坐标下
+     * {@code Integer.MAX_VALUE - Integer.MIN_VALUE + 1} 恰好回绕成 0，于是「整张地图那么大」的区域
+     * 会被算成体积 0 并通过校验，最后在 {@link #chunks()} 处炸出负长度的数组。
+     */
+    private static long span(int low, int high)
     {
-        return (long) (pos2.getX() - pos1.getX() + 1)
-                * (pos2.getY() - pos1.getY() + 1)
-                * (pos2.getZ() - pos1.getZ() + 1);
+        return (long) high - (long) low + 1L;
     }
 
-    public int chunkCount()
+    /** 体积（格数，含两端）。超出上限的区域会被封顶，保证不溢出 long。 */
+    public long volume()
     {
-        int chunksX = (pos2.getX() >> 4) - (pos1.getX() >> 4) + 1;
-        int chunksZ = (pos2.getZ() >> 4) - (pos1.getZ() >> 4) + 1;
+        long sx = Math.min(span(pos1.getX(), pos2.getX()), MAX_VOLUME + 1L);
+        long sy = Math.min(span(pos1.getY(), pos2.getY()), MAX_VOLUME + 1L);
+        long sz = Math.min(span(pos1.getZ(), pos2.getZ()), MAX_VOLUME + 1L);
+        return sx * sy * sz;
+    }
+
+    /** 覆盖的区块数。用 long 计算，理由同 {@link #span(int, int)}。 */
+    public long chunkCount()
+    {
+        long chunksX = span(pos1.getX() >> 4, pos2.getX() >> 4);
+        long chunksZ = span(pos1.getZ() >> 4, pos2.getZ() >> 4);
         return chunksX * chunksZ;
     }
 
@@ -94,14 +109,26 @@ public record MaterialRegion(
                 && pos.getZ() >= pos1.getZ() && pos.getZ() <= pos2.getZ();
     }
 
-    /** 该区域覆盖的区块（按行优先顺序，扫描器按此顺序推进游标）。 */
+    /**
+     * 该区域覆盖的区块（按行优先顺序，扫描器按此顺序推进游标）。
+     *
+     * <p>只有通过 {@link #validate()} 的区域才允许走到这里；未校验的区域直接抛异常，
+     * 而不是去分配一个长度荒谬（甚至为负）的数组。
+     */
     public ChunkPos[] chunks()
     {
+        long count = chunkCount();
+
+        if (count <= 0L || count > MAX_CHUNKS)
+        {
+            throw new IllegalStateException("区域未经校验或过大：" + count + " 个区块（上限 " + MAX_CHUNKS + "）");
+        }
+
         int minChunkX = pos1.getX() >> 4;
         int maxChunkX = pos2.getX() >> 4;
         int minChunkZ = pos1.getZ() >> 4;
         int maxChunkZ = pos2.getZ() >> 4;
-        ChunkPos[] result = new ChunkPos[(maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1)];
+        ChunkPos[] result = new ChunkPos[(int) count];
         int i = 0;
 
         for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
@@ -130,26 +157,47 @@ public record MaterialRegion(
         return new MaterialRegion(id, name, dimension, pos1, pos2, newPlacementId, owner, createdAt, lastScanAt, revision, coveragePermille);
     }
 
+    /** 区域不可接受的原因。用枚举而不是字符串：i18n 键与参数个数必须一一对应，拼错了不会有人报错。 */
+    public enum Invalid
+    {
+        TOO_LARGE("too_large"),
+        TOO_MANY_CHUNKS("too_many_chunks"),
+        EMPTY_NAME("empty_name");
+
+        private final String keySuffix;
+
+        Invalid(String keySuffix)
+        {
+            this.keySuffix = keySuffix;
+        }
+
+        /** 对应的 i18n 键：{@code lmp.error.region.<suffix>}。 */
+        public String key()
+        {
+            return "lmp.error.region." + this.keySuffix;
+        }
+    }
+
     /**
      * 校验区域是否可接受。
      *
-     * @return 空表示通过；否则返回 i18n 键后缀（{@code lmp.error.region.<reason>}）
+     * @return 空表示通过；否则给出不可接受的原因
      */
-    public Optional<String> validate()
+    public Optional<Invalid> validate()
     {
         if (volume() > MAX_VOLUME)
         {
-            return Optional.of("too_large");
+            return Optional.of(Invalid.TOO_LARGE);
         }
 
         if (chunkCount() > MAX_CHUNKS)
         {
-            return Optional.of("too_many_chunks");
+            return Optional.of(Invalid.TOO_MANY_CHUNKS);
         }
 
         if (name == null || name.isBlank())
         {
-            return Optional.of("empty_name");
+            return Optional.of(Invalid.EMPTY_NAME);
         }
 
         return Optional.empty();

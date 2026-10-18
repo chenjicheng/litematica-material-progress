@@ -136,17 +136,27 @@ public final class LmpCommand
 
         MaterialRegion region = new MaterialRegion(UUID.randomUUID(), name, selection.dimension(),
                 selection.pos1(), selection.pos2(), null, player.getUuid(), System.currentTimeMillis(), 0L, 0L, 0);
-        Optional<String> invalid = region.validate();
+        Optional<MaterialRegion.Invalid> invalid = region.validate();
 
         if (invalid.isPresent())
         {
-            error(context, "lmp.error.region." + invalid.get(), region.volume(), region.chunkCount());
+            // 三个原因的 i18n 参数个数不同，必须分别给，不能一律塞 (体积, 区块数)
+            switch (invalid.get())
+            {
+                case TOO_LARGE -> error(context, MaterialRegion.Invalid.TOO_LARGE.key(),
+                        region.volume(), MaterialRegion.MAX_VOLUME);
+                case TOO_MANY_CHUNKS -> error(context, MaterialRegion.Invalid.TOO_MANY_CHUNKS.key(),
+                        region.chunkCount());
+                case EMPTY_NAME -> error(context, MaterialRegion.Invalid.EMPTY_NAME.key());
+            }
+
             return 0;
         }
 
         store.put(region);
         LmpServer.selections().clear(player.getUuid());
         LmpServer.onRegionsChanged();
+        warnIfNotPersisted(context, store);
 
         context.getSource().sendFeedback(() -> Text.translatable("lmp.command.region.created", name,
                 region.volume(), region.chunkCount()), true);
@@ -189,6 +199,7 @@ public final class LmpCommand
 
         store.put(region.withPlacement(placementId));
         LmpServer.onRegionsChanged();
+        warnIfNotPersisted(context, store);
         context.getSource().sendFeedback(() -> Text.translatable("lmp.command.region.bound", name,
                 placementId.toString()), true);
         return 1;
@@ -274,9 +285,11 @@ public final class LmpCommand
             return 0;
         }
 
-        LmpServer.scheduler().ifPresent(ScanScheduler::cancel);
+        // 只取消这个区域自己的扫描：取消全部会顺带打断另一个无关区域的扫描
+        LmpServer.scheduler().ifPresent(scheduler -> scheduler.cancelRegion(region.id()));
         store.remove(region.id());
         LmpServer.onRegionsChanged();
+        warnIfNotPersisted(context, store);
         context.getSource().sendFeedback(() -> Text.translatable("lmp.command.region.deleted", name), true);
         return 1;
     }
@@ -378,6 +391,20 @@ public final class LmpCommand
         return store.all().stream()
                 .filter(region -> region.name().toLowerCase(Locale.ROOT).equals(needle))
                 .findFirst();
+    }
+
+    /**
+     * 写盘失败时明确告知玩家。
+     *
+     * <p>内存里的改动是成功的，所以命令本身不算失败；但重启之后它会消失，
+     * 只留一条服务端日志的话，玩家会以为已经存住了。
+     */
+    private static void warnIfNotPersisted(CommandContext<ServerCommandSource> context, RegionStore store)
+    {
+        if (!store.lastSaveSucceeded())
+        {
+            context.getSource().sendError(Text.translatable("lmp.command.region.save_failed"));
+        }
     }
 
     private static void error(CommandContext<ServerCommandSource> context, String key, Object... args)

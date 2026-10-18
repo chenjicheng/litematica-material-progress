@@ -31,6 +31,21 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class LmpServerNetworking implements ScanScheduler.Listener
 {
+    /** 与 {@code /lmp scan} 相同的权限闸（1.21.11 的 GAMEMASTERS 对应旧的权限等级 2）。 */
+    private static final java.util.function.Predicate<net.minecraft.server.command.ServerCommandSource>
+            FORCE_RESCAN_PERMISSION = net.minecraft.server.command.CommandManager.requirePermissionLevel(
+                    net.minecraft.server.command.CommandManager.GAMEMASTERS_CHECK);
+
+    /**
+     * 当前这一轮服务器生命周期对应的网络层。
+     *
+     * <p>Fabric 的全局接收器与 JOIN 监听器<b>只能注册一次</b>（重复注册会静默失败、监听器则不断累积），
+     * 而集成服务器可以在同一个 JVM 里反复起停。因此接收器只注册一次，并且不在闭包里捕获某一轮的实例，
+     * 而是每次回调都取「当前」实例——否则重启之后仍然由上一张地图的 store/scheduler 提供服务。
+     */
+    private static volatile @Nullable LmpServerNetworking current;
+    private static boolean registered;
+
     private final RegionStore store;
     private final ScanScheduler scheduler;
     private @Nullable MinecraftServer server;
@@ -43,13 +58,35 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
 
     public void register()
     {
+        current = this;
+
+        if (registered)
+        {
+            return;
+        }
+
+        registered = true;
+
         ServerPlayNetworking.registerGlobalReceiver(LmpPayloads.RequestPayload.ID, (payload, context) ->
-                context.server().execute(() -> this.handleRequest(context.server(), context.player(), payload)));
+                context.server().execute(() ->
+                {
+                    LmpServerNetworking net = current;
+
+                    if (net != null)
+                    {
+                        net.handleRequest(context.server(), context.player(), payload);
+                    }
+                }));
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
         {
-            this.server = server;
-            this.sendRegionList(handler.getPlayer());
+            LmpServerNetworking net = current;
+
+            if (net != null)
+            {
+                net.server = server;
+                net.sendRegionList(handler.getPlayer());
+            }
         });
     }
 
@@ -93,12 +130,20 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
             return;
         }
 
-        // 有快照就直接回，再考虑是否需要按 TTL 触发重扫；没有快照则回状态并触发扫描
-        this.scheduler.snapshot(region.id()).ifPresent(progress -> this.sendSnapshot(player, region.id(), progress));
+        // 有「当前版本」的快照就直接回，再考虑是否需要按 TTL 触发重扫；没有快照则回状态并触发扫描
+        this.scheduler.currentSnapshot(region).ifPresent(progress -> this.sendSnapshot(player, region.id(), progress));
         this.scheduler.status(region.id()).ifPresent(status -> this.sendStatus(player, region.id(), status));
 
         if (request.forceRescan())
         {
+            // 强制重扫会让服务端做一次全区域扫描，属于有成本的操作，因此与 /lmp scan 用同一道权限闸；
+            // 只读地取快照则对所有玩家开放（下面这条路径）。
+            if (!FORCE_RESCAN_PERMISSION.test(player.getCommandSource()))
+            {
+                player.sendMessage(Text.translatable("lmp.command.scan.not_permitted"), true);
+                return;
+            }
+
             // 手动刷新走「玩家触发」路径，因此受限流约束；被限流时明确告知，而不是静默无反应
             this.scheduler.requestScan(region, player.getUuid()).ifPresent(reason ->
                     player.sendMessage(Text.translatable("lmp.command.scan." + reason), true));

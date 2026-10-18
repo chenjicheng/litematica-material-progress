@@ -55,7 +55,7 @@ class RegionStoreTest
         MaterialRegion huge = region("huge", new BlockPos(0, 0, 0), new BlockPos(5000, 300, 5000));
 
         assertTrue(huge.validate().isPresent());
-        assertEquals("too_large", huge.validate().orElseThrow());
+        assertEquals(MaterialRegion.Invalid.TOO_LARGE, huge.validate().orElseThrow());
     }
 
     @Test
@@ -143,7 +143,7 @@ class RegionStoreTest
     {
         MaterialRegion region = region("a", new BlockPos(0, 0, 0), new BlockPos(31, 10, 15));
 
-        assertEquals(2 * 1, region.chunkCount());
+        assertEquals(2L, region.chunkCount());
         assertEquals(2, region.chunks().length);
         assertEquals(0, region.chunks()[0].getStartX());
         assertEquals(16, region.chunks()[1].getStartX());

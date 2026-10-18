@@ -43,6 +43,7 @@ public final class RegionStore
     private final Path file;
     private final Map<UUID, MaterialRegion> regions = new LinkedHashMap<>();
     private long revisionCounter;
+    private boolean lastSaveSucceeded = true;
 
     public RegionStore(Path file)
     {
@@ -221,7 +222,12 @@ public final class RegionStore
         return element == null || element.isJsonNull() ? fallback : element.getAsLong();
     }
 
-    public void save()
+    /**
+     * 把当前内容原子地写到磁盘。
+     *
+     * @return 是否写成功；失败时已经记了服务端日志，调用方据此决定要不要提示玩家
+     */
+    public boolean save()
     {
         JsonObject root = new JsonObject();
         root.addProperty("version", FORMAT_VERSION);
@@ -271,11 +277,22 @@ public final class RegionStore
             {
                 Files.move(tmp, this.file, StandardCopyOption.REPLACE_EXISTING);
             }
+
+            this.lastSaveSucceeded = true;
         }
         catch (IOException e)
         {
-            LmpMod.LOGGER.error("写入材料区文件失败：{}", this.file, e);
+            this.lastSaveSucceeded = false;
+            LmpMod.LOGGER.error("写入材料区文件失败：{}（改动仍在内存里，但重启后会丢失）", this.file, e);
         }
+
+        return this.lastSaveSucceeded;
+    }
+
+    /** 最近一次 {@link #save()} 是否成功。 */
+    public boolean lastSaveSucceeded()
+    {
+        return this.lastSaveSucceeded;
     }
 
     private static JsonArray writePos(BlockPos pos)

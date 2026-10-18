@@ -23,9 +23,9 @@
   "lmp.error.region.too_many_chunks": "Region spans too many chunks (%s); shrink it",
   "lmp.error.region.empty_name": "The material region name cannot be empty",
   "lmp.gui.title": "Material progress - %s",
-  "lmp.gui.column.required": "Required",
-  "lmp.gui.column.present": "Collected",
-  "lmp.gui.column.missing": "Missing",
+  "lmp.gui.column.required": "Req %s",
+  "lmp.gui.column.present": "Have %s",
+  "lmp.gui.column.missing": "Need %s",
   "lmp.gui.progress.types": "Types %s%% (%s/%s)",
   "lmp.gui.progress.items": "Items %s%% (%s/%s)",
   "lmp.gui.status.server_missing": "The server does not have this mod; progress is unavailable",
@@ -36,7 +36,6 @@
   "lmp.gui.status.unknown_required": "Required materials unknown (the server cannot read the schematic)",
   "lmp.gui.status.partial": "Incomplete result: some chunks were not loaded (coverage %s‰)",
   "lmp.gui.button.refresh": "Refresh scan",
-  "lmp.gui.button.select_region": "Use current selection as material region",
   "lmp.gui.label.last_scan": "Last scan: %s",
   "lmp.gui.label.never_scanned": "Never scanned",
   "lmp.gui.section.extra": "Extra stock (not required by the schematic)",
@@ -57,5 +56,7 @@
   "lmp.gui.button.close": "Close",
   "lmp.gui.button.next_region": "Next region",
   "lmp.gui.list.header": "Material regions:",
-  "lmp.gui.list.open": "[open]"
+  "lmp.gui.list.open": "[open]",
+  "lmp.command.scan.not_permitted": "You are not allowed to force a rescan",
+  "lmp.command.region.save_failed": "Saved in memory, but writing the region file failed - it will be lost on restart (see the server log)"
 }

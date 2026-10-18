@@ -21,8 +21,11 @@ public final class LmpClientNetworking
 
     public static void register()
     {
-        // 断开连接必须清缓存：换服务器后旧区域的进度留在界面上比空着更误导
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientProgressStore.get().reset());
+        // 断开连接必须清缓存：换服务器后旧区域的进度留在界面上比空着更误导。
+        // 这个事件在 netty 线程上触发，而 reset() 会同步回调监听者（其中就有正在显示的界面），
+        // 因此必须切回客户端主线程再清。
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) ->
+                client.execute(() -> ClientProgressStore.get().reset()));
 
         ClientPlayNetworking.registerGlobalReceiver(LmpPayloads.RegionListPayload.ID, (payload, context) ->
                 context.client().execute(() -> ClientProgressStore.get().setRegions(payload.regions())));

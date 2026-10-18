@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.WorldSavePath;
@@ -48,6 +49,10 @@ public final class LmpServer
 
         ServerLifecycleEvents.SERVER_STARTED.register(LmpServer::onServerStarted);
         ServerLifecycleEvents.SERVER_STOPPING.register(LmpServer::onServerStopping);
+        // 待定的角点是「这个玩家正在框这块区域」的临时状态，玩家一走或服务器一停就不该再留着，
+        // 否则下次进来点 create 会用到上一次会话的坐标
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) ->
+                SELECTIONS.clear(handler.getPlayer().getUuid()));
         ServerTickEvents.END_SERVER_TICK.register(LmpServer::onEndTick);
 
         LmpMod.LOGGER.info("{} 服务端组件已注册", LmpMod.MOD_ID);
@@ -85,6 +90,7 @@ public final class LmpServer
         store = null;
         scheduler = null;
         networking = null;
+        SELECTIONS.clearAll();
     }
 
     private static void onEndTick(MinecraftServer server)

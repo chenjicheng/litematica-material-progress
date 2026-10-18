@@ -54,7 +54,13 @@ public class LmpGuiMaterialList extends GuiMaterialList
         ClientProgressStore store = ClientProgressStore.get();
         ClientProgressStore.Status status = store.status(this.list.regionId()).orElse(null);
 
-        if (status != null && status.phase() != ClientProgressStore.Phase.IDLE)
+        if (status != null && status.phase() == ClientProgressStore.Phase.FINALIZING)
+        {
+            // 读原理图时区块进度是 0/0，用「扫描中 0%」表述会像是卡住了
+            return " | " + StringUtils.translate("lmp.gui.status.finalizing");
+        }
+
+        if (status != null && status.phase() == ClientProgressStore.Phase.SCANNING)
         {
             return " | " + StringUtils.translate("lmp.gui.status.scanning",
                     String.format("%.0f", status.fraction() * 100.0D),

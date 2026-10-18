@@ -1,5 +1,8 @@
 package com.chenjicheng.lmp.client.gui;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -37,6 +40,7 @@ public class LmpProgressScreen extends Screen
     private static final int COLOR_DONE = 0xFF55FF55;
     private static final int COLOR_MISSING = 0xFFFF7070;
     private static final int COLOR_SECTION = 0xFFFFD070;
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final UUID regionId;
     private final Runnable storeListener = this::onStoreChanged;
@@ -208,6 +212,12 @@ public class LmpProgressScreen extends Screen
             }
         }
 
+        if (rows.isEmpty())
+        {
+            // 空列表什么都不画会让人以为是没加载出来，给一句「下一步做什么」
+            rows.add(Row.section("lmp.gui.empty"));
+        }
+
         this.list.setRows(rows);
     }
 
@@ -233,6 +243,13 @@ public class LmpProgressScreen extends Screen
         {
             context.drawTextWithShadow(this.textRenderer, Text.translatable("lmp.gui.header.region",
                     info.dimension(), info.volume()), 12, 28, COLOR_LABEL);
+            // 数据有多旧是判断「这个数字还能不能信」的关键，别让玩家去猜
+            Text lastScan = info.lastScanAt() <= 0L
+                    ? Text.translatable("lmp.gui.label.never_scanned")
+                    : Text.translatable("lmp.gui.label.last_scan", DATE_FORMAT.format(
+                            Instant.ofEpochMilli(info.lastScanAt()).atZone(ZoneId.systemDefault())));
+            context.drawTextWithShadow(this.textRenderer, lastScan,
+                    this.width - this.textRenderer.getWidth(lastScan) - 12, 28, COLOR_LABEL);
         }
 
         if (!store.serverSupportsUs())
@@ -242,7 +259,14 @@ public class LmpProgressScreen extends Screen
             return;
         }
 
-        if (status != null && status.phase() != ClientProgressStore.Phase.IDLE)
+        if (status != null && status.phase() == ClientProgressStore.Phase.FINALIZING)
+        {
+            context.drawTextWithShadow(this.textRenderer, Text.translatable("lmp.gui.status.finalizing"),
+                    12, 40, COLOR_SECTION);
+            return;
+        }
+
+        if (status != null && status.phase() == ClientProgressStore.Phase.SCANNING)
         {
             context.drawTextWithShadow(this.textRenderer, Text.translatable("lmp.gui.status.scanning",
                     String.format("%.0f", status.fraction() * 100.0D), status.chunksDone(), status.chunksTotal()),

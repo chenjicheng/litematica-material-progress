@@ -61,6 +61,12 @@ public final class RegionSelectionState
         return Optional.ofNullable(this.selections.get(playerId));
     }
 
+    /** 清空所有玩家的待定角点（服务器停止时调用）。 */
+    public void clearAll()
+    {
+        this.selections.clear();
+    }
+
     public void clear(UUID playerId)
     {
         this.selections.remove(playerId);
