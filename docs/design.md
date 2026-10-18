@@ -110,6 +110,10 @@ M2 再补特殊方块表。
   接收器签名为 `void receive(T payload, Context ctx)`（返回 boolean 的是 `registerGlobalReceiver`）。
 - 请求按 **placementId(UUID)** 索引，不用 regionId varint（客户端只从 Syncmatica 握手获得 placement id）。
 - 物品键用注册表 `Identifier`，不用 raw id。
+- 实测定稿的字段：`lmp:request` = {regionId, knownRevision, forceRescan}；
+  `lmp:region_list` 的每条摘要带 **pos1/pos2**——客户端要回答「我站在哪个材料区里」并显示体积，
+  否则热键只能盲选。`forceRescan` 是「刷新扫描」按钮与 TTL 自动重扫的分界：
+  前者由玩家显式触发、走按玩家限流，后者静默。
 - **revision 在任何区域变更与服务器启动时 bump/reset**，快照与 revision 一起持久化；
   否则重启后客户端缓存的 `(regionId, revision)` 与服务端相同，会渲染空白或旧区域数据。
 - 包大小：约 2000 条目 ≈ 12–16 KB，S2C 上限 1 MiB；更大区域用 Fabric splitter。
@@ -117,38 +121,62 @@ M2 再补特殊方块表。
 
 ## 6. 客户端
 
-**列表界面直接复用 Litematica 的 `GuiMaterialList`**（已核实可行）：
+### 6.1 进度界面：复用 Litematica `GuiMaterialList`（已实现）
 
-- `MaterialListBase` 是 `public abstract class implements IMaterialList`，抽象方法仅
-  `getName()` / `getTitle()` / `reCreateMaterialList()`；`GuiMaterialList` 是 `public class`，
-  构造函数为 `GuiMaterialList(MaterialListBase)`。
-- 上游自带范例 `MaterialListCustom`（"From Stormatica by CubicMetre"）即「直接 item→数量 成表」，
-  与本项目服务端快照同形；照其结构写 `MaterialListBase` 子类即可。
-- 它渲染的列正是 **Total / Missing / Available**（颜色规则 `available >= missing ? 绿 : 红`），
-  天然满足约束 7：映射为 `MaterialListEntry(stack, countTotal=所需, countMissing=还差, countMismatched=0, countAvailable=已收集)`。
-- 代价与注意：内部包无 API 稳定性承诺 → 固定版本 + 可选依赖守卫，缺失时降级自绘；
-  构造时会写入 `DataManager.setMaterialList(...)`（仅当为空），会接管 Litematica 的材料列表 HUD 与热键；
-  `reCreateMaterialList()` 实现为「重读服务端快照」，绝不触发扫描；`countMismatched` 恒为 0。
+`LmpMaterialList extends MaterialListBase` 把服务端快照映射成行：
+`MaterialListEntry(stack, countTotal=所需, countMissing=还差, countMismatched=0, countAvailable=已收集)`。
+`LmpGuiMaterialList extends GuiMaterialList` 是薄子类，补两件上游不管的事。
 
-**入口**（三选）：① mixin 重新启用 Syncmatica placement 行的「材料清单」按钮
-（该按钮为 index 1，构造函数中 `setEnabled(false)`；索引依赖上游版本，用条件 mixin + 可选）；
-② 快捷键；③ `/lmp gui`。
+**复用它的三个实测陷阱**（都不是猜测，是读上游源码得到的）：
 
-**区域录入（命令为唯一真相）**：
+1. `GuiMaterialList` 构造函数会调用
+   `MaterialListUtils.updateAvailableCounts(materialList.getMaterialsAll(), mc.player)`，
+   把 **Available 列覆盖成玩家背包里的数量**；材料清单 HUD 每 2 秒也会再覆盖一次。
+   本模组的 Available 是「材料区内已收集」，含义不同 → 重写 `getMaterialsAll()`
+   返回**独立副本**，让上游的改写落在副本上，真实列表保持服务端数据。
+2. 构造函数还会 `setCompletionListener(this)` 覆盖我们设置的监听器 →
+   依赖它的回调（`setMaterialListEntries` 之后触发 `onTaskCompleted()` → `initGui()`）来刷新控件，
+   自己不要再设监听器。
+3. 上游汇总行 "Total n / Done x% / Missing y%" 只覆盖**数量维度**。
+   约束 7 要求两个维度都显示 → 种类进度挂在 `getTitleString()` 上，随每次重绘重算。
 
-| 前端 | 实现 | 说明 |
+`reCreateMaterialList()` = 重读客户端缓存 + 向服务端要一次快照，**绝不触发扫描**：
+是否真的重扫由服务端按快照 TTL 决定，因此反复点「刷新」不会变成扫描风暴。
+强制重扫走 `/lmpc refresh` 或回退界面上的按钮（带 `forceRescan`）。
+
+**降级路径**：没装 Litematica（或 malilib）时用自绘的 `LmpProgressScreen`
+（两个进度维度、逐物品所需/已收集/还差、额外囤积、扫描进度、强制重扫）。
+可选依赖必须真的可选——`LmpMaterialList` / `LmpSelectionBridge` 只在对应分支体里被引用，
+JVM 按需解析常量池，没装 Litematica 的客户端不会碰到这些类。
+
+### 6.2 入口
+
+| 入口 | 实现 | 说明 |
 | --- | --- | --- |
-| `/lmp region pos1` / `pos2` | `MinecraftClient.crosshairTarget` → `BlockHitResult.getBlockPos()` | 主推，不依赖 Litematica 内部 API |
-| `/lmp region from-selection` | `DataManager.getSelectionManager().getCurrentSelection()` → `AreaSelection.getAllSubRegions()` | 复用 Litematica 已有习惯；多 box 时取并集并提示，或要求单个 |
-| `/lmp region set <x1 y1 z1> <x2 y2 z2>` | 精确坐标（支持 `~`） | 脚本/精确对齐 |
+| 热键 `K` | `LmpKeybinds` | 默认键与 Litematica（M/I）和原版都不冲突；分类独立成 `key.category.lmp.main` |
+| `/lmpc gui [名称]` | `LmpClientCommands` | 无参时按「脚下 → 当前维度唯一 → 列出来让玩家点」选区域 |
+| 可选 Syncmatica 按钮 mixin | **未实现** | 依赖上游按钮索引，随版本失效；已记为后续项 |
 
-固化：`/lmp region create <名字>`（绑定当前 placementId 落服务端），配套 `info` / `list` / `delete`。
-注意 Litematica **没有选区变更的公开监听器**（placement 有 `SchematicPlacementEventHandler`，选区没有），
+### 6.3 区域录入（命令为唯一真相）
+
+客户端命令 **`/lmpc`**（刻意带后缀：连接服务器时服务端命令会覆盖同名客户端命令，而 `/lmp` 是服务端命令树）。
+它自己不修改任何状态，只把动作翻译成服务端命令再发出去，因此服务端校验、权限、限流一条都不少。
+
+| 客户端命令 | 翻译成 | 用途 |
+| --- | --- | --- |
+| `/lmpc pos1` / `pos2` | `lmp region pos1 <x y z>` | `MinecraftClient.crosshairTarget` 取视线方块，不依赖 Litematica 内部 API |
+| `/lmpc from-selection <名称>` | `pos1` + `pos2` + `create` | 读 Litematica 当前选区（多子区域取并集） |
+| `/lmpc create <名称>` | `lmp region create <名称>` | 固化 |
+| `/lmpc bind <材料区> <placementId>` | `lmp region bind` | 绑定共享放置 |
+| `/lmpc placements` | 纯客户端 | 列出 Syncmatica 客户端已知放置，点击把 bind 命令填进输入框（不用手抄 UUID） |
+| `/lmpc refresh [名称]` | `lmp:request{forceRescan}` | 强制重扫（仍受服务端按玩家限流） |
+
+注意 Litematica **没有**选区变更的公开监听器（placement 有 `SchematicPlacementEventHandler`，选区没有），
 因此 `from-selection` 只能是「按下时读一次快照」，不做持续跟随。
 
-**服务端校验**：同维度、坐标归一化 min/max、**体积上限**（防 MSPT 的第一道闸，超限直接拒绝并说明）、
-权限（fabric-permissions-api；Syncmatica 自身命令默认 `PermissionLevel.ALL`，不适合当区域编辑的闸）、
-记录 owner / createdAt / revision。
+**未实现（已记为后续项）**：`create` 时按「包含区域中心的 placement」自动绑定。
+它需要 placement 的包围盒，而 Syncmatica 的 `ServerPlacement` 只有位置/旋转/镜像、没有尺寸——
+尺寸要等 M2 的 `.litematic` 解析器读出 `Metadata.EnclosingSize` 才能自动绑定。
 
 ## 7. 数据模型
 
@@ -169,15 +197,15 @@ M2 再补特殊方块表。
 ## 8. 里程碑
 
 - **M0（本仓库当前状态）**：仓库/许可/构建/文档骨架，可编译。
-- **M1**：服务端异步扫描器原型 + 命令 + 最小客户端取数闭环 + **MSPT 实测**（LMP-2）。
+- **M1（已实现，MSPT 未实测）**：服务端异步扫描器 + 命令 + 客户端取数闭环。
 - **M2**：`.litematic` 解析与所需材料计算（含特殊方块表与老版本策略），进度 join。
-- **M3**：`GuiMaterialList` 正式界面、入口（mixin/热键/命令）、区域录入 UX、重扫策略与 i18n。
+- **M3（已实现）**：`GuiMaterialList` 正式界面 + 自绘降级界面、热键与 `/lmpc` 入口、区域录入三前端、重扫策略（TTL/手动/限流）、i18n。
 
 ## 9. 风险
 
 - **所需材料准确性**：Litematica 的特殊方块处理（含水、台阶=2、雪层、门/床、耕地→泥土、
   岩浆/水→桶、花盆/炼药锅）与用户倍率仅存在于客户端；M1 的 `asItem()` 兜底会偏。
 - **MSPT 数字未实测**：2ms 预算与每容器微秒级均为估算，必须在真实服务端测量后再定。
-- **上游耦合**：`GuiMaterialList`、`SelectionManager` 均为内部包；mixin 按索引取按钮易随上游变更失效。
+- **上游耦合**：`GuiMaterialList`、`SelectionManager` 均为内部包，无 API 稳定性承诺；已用「固定版本 + 可选依赖守卫 + 自绘降级」兜住，Syncmatica 按钮 mixin 未实现。
 - **许可**：Litematica / malilib / Servux 为 LGPL-3.0，本项目不复制其代码，只链接/继承。
 - **测量与测试缺口**：本机无真实服务器与 Spark；扫描预算与「不加载区块」不变量需要真实环境验证。

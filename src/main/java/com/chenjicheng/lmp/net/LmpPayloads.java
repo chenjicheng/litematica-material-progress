@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.packet.CustomPayload;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.Identifier;
 
 import com.chenjicheng.lmp.LmpMod;
@@ -41,8 +42,9 @@ public final class LmpPayloads
      *
      * @param regionId      区域标识
      * @param knownRevision 客户端已有的版本号；服务端无论如何都会回包，客户端据此判断是否需要更新
+     * @param forceRescan   玩家显式点了「刷新扫描」：忽略快照 TTL 直接重扫（仍受服务端限流约束）
      */
-    public record RequestPayload(UUID regionId, long knownRevision) implements CustomPayload
+    public record RequestPayload(UUID regionId, long knownRevision, boolean forceRescan) implements CustomPayload
     {
         public static final CustomPayload.Id<RequestPayload> ID =
                 new CustomPayload.Id<>(Identifier.of(LmpMod.MOD_ID, "request"));
@@ -52,8 +54,9 @@ public final class LmpPayloads
                 {
                     writeUuid(buf, payload.regionId());
                     buf.writeVarLong(payload.knownRevision());
+                    buf.writeBoolean(payload.forceRescan());
                 },
-                buf -> new RequestPayload(readUuid(buf), buf.readVarLong()));
+                buf -> new RequestPayload(readUuid(buf), buf.readVarLong(), buf.readBoolean()));
 
         public static final CustomPayload.Type<RegistryByteBuf, RequestPayload> TYPE =
                 new CustomPayload.Type<>(ID, CODEC);
@@ -85,6 +88,8 @@ public final class LmpPayloads
                         buf.writeString(info.name());
                         buf.writeString(info.dimension());
                         writeNullableUuid(buf, info.placementId());
+                        buf.writeBlockPos(info.pos1());
+                        buf.writeBlockPos(info.pos2());
                         buf.writeVarLong(info.revision());
                         buf.writeVarLong(info.lastScanAt());
                         buf.writeVarInt(info.coveragePermille());
@@ -102,6 +107,8 @@ public final class LmpPayloads
                                 buf.readString(),
                                 buf.readString(),
                                 readNullableUuid(buf),
+                                buf.readBlockPos(),
+                                buf.readBlockPos(),
                                 buf.readVarLong(),
                                 buf.readVarLong(),
                                 buf.readVarInt()));
@@ -210,10 +217,29 @@ public final class LmpPayloads
 
     // ------------------------------------------------------------ 传输用的简单结构
 
-    /** 区域摘要（不含进度数据）。 */
+    /**
+     * 区域摘要（不含进度数据）。
+     *
+     * <p>带上两个角点是为了让客户端能回答「我现在站在哪个材料区里」以及显示体积——
+     * 否则热键只能盲选，玩家得先记住区域名字。
+     */
     public record RegionInfo(UUID id, String name, String dimension, @Nullable UUID placementId,
-                             long revision, long lastScanAt, int coveragePermille)
+                             BlockPos pos1, BlockPos pos2, long revision, long lastScanAt, int coveragePermille)
     {
+        /** 区域体积（格数），含两端。 */
+        public long volume()
+        {
+            return (long) (this.pos2.getX() - this.pos1.getX() + 1)
+                    * (this.pos2.getY() - this.pos1.getY() + 1)
+                    * (this.pos2.getZ() - this.pos1.getZ() + 1);
+        }
+
+        public boolean contains(BlockPos pos)
+        {
+            return pos.getX() >= this.pos1.getX() && pos.getX() <= this.pos2.getX()
+                    && pos.getY() >= this.pos1.getY() && pos.getY() <= this.pos2.getY()
+                    && pos.getZ() >= this.pos1.getZ() && pos.getZ() <= this.pos2.getZ();
+        }
     }
 
     /** 单个物品的所需与已收集数量。 */

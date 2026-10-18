@@ -1,9 +1,7 @@
 {
   "lmp.mod.name": "Material Progress",
-
   "lmp.command.player_only": "This command can only be run by a player",
   "lmp.command.not_ready": "The server is not ready yet, try again shortly",
-
   "lmp.command.region.pos1": "Material region corner 1 set to (%s, %s, %s)",
   "lmp.command.region.pos2": "Material region corner 2 set to (%s, %s, %s)",
   "lmp.command.region.created": "Material region \"%s\" saved: %s blocks, %s chunks",
@@ -16,18 +14,14 @@
   "lmp.command.region.list_entry": "- %s | dimension %s | %s blocks | coverage %s‰ | placement %s",
   "lmp.command.region.info": "Material region \"%s\": dimension %s, from (%s, %s, %s) to (%s, %s, %s), %s blocks / %s chunks, revision %s, coverage %s‰",
   "lmp.command.region.deleted": "Material region \"%s\" deleted",
-
   "lmp.command.scan.started": "Scanning material region \"%s\"; progress will appear in the menu",
   "lmp.command.scan.need_name": "This dimension has %s material regions; name one: /lmp scan <name>",
   "lmp.command.scan.rate_limited": "Refreshing too often, try again shortly",
-
   "lmp.command.status.entry": "%s: %s, chunks %s/%s, containers scanned %s",
   "lmp.command.status.idle": "No scan is currently running",
-
   "lmp.error.region.too_large": "Region is too large (%s blocks, limit %s); shrink it",
   "lmp.error.region.too_many_chunks": "Region spans too many chunks (%s); shrink it",
   "lmp.error.region.empty_name": "The material region name cannot be empty",
-
   "lmp.gui.title": "Material progress - %s",
   "lmp.gui.column.required": "Required",
   "lmp.gui.column.present": "Collected",
@@ -46,5 +40,22 @@
   "lmp.gui.label.last_scan": "Last scan: %s",
   "lmp.gui.label.never_scanned": "Never scanned",
   "lmp.gui.section.extra": "Extra stock (not required by the schematic)",
-  "lmp.gui.empty": "No data yet — define a material region and scan once"
+  "lmp.gui.empty": "No data yet — define a material region and scan once",
+  "key.category.lmp.main": "Material Progress",
+  "key.lmp.open_progress": "Open material progress",
+  "lmp.command.not_connected": "Not connected to a server",
+  "lmp.command.region.no_target": "Look at a block first",
+  "lmp.command.region.sent_corner": "Corner %s sent: (%s, %s, %s)",
+  "lmp.command.region.sent_selection": "Sent the current selection as material region \"%s\"",
+  "lmp.command.region.no_litematica": "Litematica is not installed",
+  "lmp.command.region.no_selection": "Litematica has no complete selection",
+  "lmp.command.region.no_syncmatica": "Syncmatica is not installed",
+  "lmp.command.region.placements_empty": "No shared placements are known yet",
+  "lmp.command.region.placements_header": "Shared placements (click one to fill in the bind command):",
+  "lmp.gui.status.no_data": "No data yet",
+  "lmp.gui.header.region": "%s | %s blocks",
+  "lmp.gui.button.close": "Close",
+  "lmp.gui.button.next_region": "Next region",
+  "lmp.gui.list.header": "Material regions:",
+  "lmp.gui.list.open": "[open]"
 }

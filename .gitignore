@@ -4,6 +4,8 @@ build/
 run/
 out/
 *.log
+*.log.gz
+logs/
 
 # 绝不提交依赖 jar（Mojang 的 minecraft-merged、Fabric API 等）
 *.jar

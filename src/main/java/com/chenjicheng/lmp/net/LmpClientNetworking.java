@@ -2,6 +2,7 @@ package com.chenjicheng.lmp.net;
 
 import java.util.UUID;
 
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 import com.chenjicheng.lmp.client.ClientProgressStore;
@@ -20,6 +21,9 @@ public final class LmpClientNetworking
 
     public static void register()
     {
+        // 断开连接必须清缓存：换服务器后旧区域的进度留在界面上比空着更误导
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientProgressStore.get().reset());
+
         ClientPlayNetworking.registerGlobalReceiver(LmpPayloads.RegionListPayload.ID, (payload, context) ->
                 context.client().execute(() -> ClientProgressStore.get().setRegions(payload.regions())));
 
@@ -39,12 +43,17 @@ public final class LmpClientNetworking
         return ClientPlayNetworking.canSend(LmpPayloads.RequestPayload.ID);
     }
 
-    /** 请求某个区域的快照；{@code knownRevision} 用于服务端判断缓存是否仍然有效。 */
-    public static void requestSnapshot(UUID regionId, long knownRevision)
+    /**
+     * 请求某个区域的快照。
+     *
+     * @param knownRevision 客户端已有的版本号，服务端据此判断是否需要回包
+     * @param forceRescan   玩家显式要求重扫（会绕过快照 TTL，但仍受服务端按玩家限流）
+     */
+    public static void requestSnapshot(UUID regionId, long knownRevision, boolean forceRescan)
     {
         if (canRequest())
         {
-            ClientPlayNetworking.send(new LmpPayloads.RequestPayload(regionId, knownRevision));
+            ClientPlayNetworking.send(new LmpPayloads.RequestPayload(regionId, knownRevision, forceRescan));
         }
     }
 }

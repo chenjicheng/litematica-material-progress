@@ -13,6 +13,7 @@ import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 
 import com.chenjicheng.lmp.LmpMod;
 import com.chenjicheng.lmp.material.MaterialProgress;
@@ -73,7 +74,8 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
         for (MaterialRegion region : this.store.all())
         {
             infos.add(new LmpPayloads.RegionInfo(region.id(), region.name(), region.dimension().toString(),
-                    region.placementId(), region.revision(), region.lastScanAt(), region.coveragePermille()));
+                    region.placementId(), region.pos1(), region.pos2(),
+                    region.revision(), region.lastScanAt(), region.coveragePermille()));
         }
 
         if (ServerPlayNetworking.canSend(player, LmpPayloads.RegionListPayload.ID))
@@ -94,6 +96,15 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
         // 有快照就直接回，再考虑是否需要按 TTL 触发重扫；没有快照则回状态并触发扫描
         this.scheduler.snapshot(region.id()).ifPresent(progress -> this.sendSnapshot(player, region.id(), progress));
         this.scheduler.status(region.id()).ifPresent(status -> this.sendStatus(player, region.id(), status));
+
+        if (request.forceRescan())
+        {
+            // 手动刷新走「玩家触发」路径，因此受限流约束；被限流时明确告知，而不是静默无反应
+            this.scheduler.requestScan(region, player.getUuid()).ifPresent(reason ->
+                    player.sendMessage(Text.translatable("lmp.command.scan." + reason), true));
+            return;
+        }
+
         this.scheduler.onSnapshotRequested(server, region);
     }
 

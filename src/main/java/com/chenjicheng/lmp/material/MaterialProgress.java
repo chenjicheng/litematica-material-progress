@@ -162,6 +162,24 @@ public record MaterialProgress(
         return types == 0 ? 0.0D : (double) completedTypes() / (double) types;
     }
 
+    /**
+     * 计入进度的已收集数量：按物品种类分别 {@code min(已收集, 所需)} 后求和。
+     *
+     * <p>多囤的材料不计入，所以这个数不会超过 {@link #totalRequired()}——
+     * 界面显示「已收集/所需」时要用它，直接用 {@link #totalPresent()} 会出现 120%。
+     */
+    public long cappedPresent()
+    {
+        long collected = 0L;
+
+        for (Map.Entry<Item, Integer> entry : this.required.entrySet())
+        {
+            collected += Math.min(presentFor(entry.getKey()), entry.getValue());
+        }
+
+        return collected;
+    }
+
     /** 已收集数量 / 所需数量，取值 0..1（按 min 截断）；所需为 0 时返回 0。 */
     public double itemProgress()
     {
@@ -172,14 +190,7 @@ public record MaterialProgress(
             return 0.0D;
         }
 
-        long collected = 0L;
-
-        for (Map.Entry<Item, Integer> entry : this.required.entrySet())
-        {
-            collected += Math.min(presentFor(entry.getKey()), entry.getValue());
-        }
-
-        return (double) collected / (double) totalRequired;
+        return (double) cappedPresent() / (double) totalRequired;
     }
 
     /** 界面用的行：按「还差多少」降序，其次按物品注册名，保证顺序稳定。 */
