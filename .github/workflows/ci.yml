@@ -61,6 +61,11 @@ jobs:
     name: 客户端 GameTest
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # 托管 runner 只有 2 核。软件渲染默认会吃满所有核心，把同进程里的集成服务端饿死
+      # （表现为 Can't keep up! 与世界加载超时），因此限定 llvmpipe 只用一个线程。
+      LP_NUM_THREADS: 1
+      LIBGL_ALWAYS_SOFTWARE: '1'
 
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +93,7 @@ jobs:
         run: |
           for attempt in 1 2; do
             echo "::group::第 ${attempt} 次运行"
-            if xvfb-run -a --server-args="-screen 0 1280x720x24" ./gradlew runClientGameTest --console=plain --stacktrace; then
+            if xvfb-run -a --server-args="-screen 0 854x480x24" ./gradlew runClientGameTest --console=plain --stacktrace; then
               echo "::endgroup::"
               exit 0
             fi
