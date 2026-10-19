@@ -1,0 +1,64 @@
+name: Release
+
+# 打 v* 标签即发布：先完整构建（含单元测试与服务端 GameTest），再把 jar 挂到 GitHub Release。
+# 客户端 GameTest 由 CI 在同一提交上覆盖，发布流程不重复跑（它要拉起图形客户端，代价最高）。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 标签与 gradle.properties 的版本对不上时直接失败：否则会发出一个「版本号与标签不符」的包
+      - name: 校验标签与 mod_version 一致
+        run: |
+          version="$(grep -E '^mod_version=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')"
+          expected="v${version}"
+          if [ "${GITHUB_REF_NAME}" != "${expected}" ]; then
+            echo "::error::标签 ${GITHUB_REF_NAME} 与 gradle.properties 的 mod_version=${version} 不一致（应为 ${expected}）"
+            exit 1
+          fi
+          echo "发布版本：${version}"
+
+      - name: 构建（含单元测试与服务端 GameTest）
+        run: ./gradlew build --console=plain --stacktrace
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 产物是 remap 过的 build/libs/*.jar（-dev.jar 在 build/devlibs，不在通配范围内）
+          gh release create "${GITHUB_REF_NAME}" \
+            build/libs/litematica-material-progress-*.jar \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
+
+      - name: 上传测试报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-reports
+          path: |
+            build/reports/tests/test
+            build/test-results/test
+          if-no-files-found: ignore
+          retention-days: 7

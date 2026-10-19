@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支被连续推送时，取消上一次还没跑完的构建
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: 构建 + 单元测试 + 服务端 GameTest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # 缓存 Gradle 用户目录：Loom 的 Minecraft 依赖与 remap 缓存都在里面，冷启动能省几分钟
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # build 依赖 test 与 runGameTest（服务端 GameTest 启动真实专用服务端）
+      - name: 构建并运行单元测试与服务端 GameTest
+        run: ./gradlew build --console=plain --stacktrace
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/test
+            build/test-results/test
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 上传发布产物（供人工检查）
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-jars
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  client-gametest:
+    name: 客户端 GameTest
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 客户端用例要拉起真实的图形客户端。CI 上没有显示器，用 Xvfb 提供虚拟显示；
+      # 渲染走 Mesa 的软件后端（llvmpipe），够 Minecraft 用。
+      - name: 安装 Xvfb 与 Mesa
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglx-mesa0 libopenal1
+
+      - name: 运行客户端 GameTest
+        run: xvfb-run -a --server-args="-screen 0 1280x720x24" ./gradlew runClientGameTest --console=plain --stacktrace
+
+      # 用例会留截图，失败时也要拿到，方便判断是渲染问题还是断言问题
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-gametest-screenshots
+          path: build/run/clientGameTest/screenshots
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 上传客户端测试日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-gametest-logs
+          path: build/run/clientGameTest/logs
+          if-no-files-found: ignore
+          retention-days: 7
