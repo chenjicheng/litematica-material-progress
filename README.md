@@ -94,13 +94,21 @@ p50 2.00ms、p99 2.03ms，前后已加载区块数完全不变。
 
 ```bash
 ./gradlew build              # 产物：build/libs/litematica-material-progress-<version>.jar，已 remap，可直接放入 mods/
-./gradlew test               # 109 个单元测试
-./gradlew runGameTest        # 5 个 GameTest，跑在真实服务端上
+./gradlew test               # 111 个单元测试
+./gradlew runGameTest        # 6 个 GameTest，跑在真实服务端上
 ./gradlew runClientGameTest  # 3 个客户端 GameTest，跑在真实客户端里并留下截图
 ```
 
-前两条并入 `./gradlew build`。客户端用例会拉起图形客户端，因此需要人工触发，截图落在
-`build/run/clientGameTest/screenshots/`。
+前两条并入 `./gradlew build`。客户端用例会拉起图形客户端，需要在有显示环境（或 Xvfb）的机器上
+手动触发，截图落在 `build/run/clientGameTest/screenshots/`。
+
+### 持续集成
+
+| 工作流 | 触发 | 覆盖 |
+| --- | --- | --- |
+| `CI` | 每次推送与 PR | `./gradlew build`：单元测试与服务端 GameTest，是合并门禁 |
+| `Client GameTest` | 手动触发、每周一次 | Xvfb + Mesa 上跑客户端用例，归档截图与日志。托管 runner 只有 2 核，客户端与集成服务端抢 CPU 时世界加载会超时，因此它不参与合并门禁 |
+| `Release` | 推送 `v*` 标签 | 校验标签与 `mod_version` 一致后构建并发布；发布说明优先取 `.github/release-notes/<标签>.md` |
 
 扫描开销测量会被同批其它测试干扰。单独跑一批可以得到干净数据：
 

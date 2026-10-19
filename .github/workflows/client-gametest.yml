@@ -1,0 +1,74 @@
+name: Client GameTest
+
+# 客户端用例要拉起真实的图形客户端，在 GitHub 托管的 2 核 runner 上不稳定：
+# 客户端与集成服务端抢 CPU，世界准备会超过框架 60 秒的硬编码上限
+# （ClientGameTestImpl.waitForWorldLoad），表现为 Timeout loading world。
+# 因此它不参与合并门禁：手动触发或每周跑一次，产物（截图、日志）仍然归档。
+on:
+  workflow_dispatch:
+  schedule:
+    # 每周一 03:17 UTC。避开整点，减少与其它项目同时排队
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  client-gametest:
+    name: 客户端 GameTest
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # CI 上没有显示器，用 Xvfb 提供虚拟显示；渲染走 Mesa 的软件后端（llvmpipe）
+      - name: 安装 Xvfb 与 Mesa
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglx-mesa0 libopenal1
+
+      # 用例自己会把视距/粒子/云/光影调到最低（见 LmpTestWorlds）。这里重试一次，
+      # 因为世界加载超时与断言无关；两次都失败仍然判失败。
+      - name: 运行客户端 GameTest
+        run: |
+          for attempt in 1 2; do
+            echo "::group::第 ${attempt} 次运行"
+            if xvfb-run -a --server-args="-screen 0 854x480x24" ./gradlew runClientGameTest --console=plain --stacktrace; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::第 ${attempt} 次运行失败，清理运行目录后重试"
+            ./gradlew --stop || true
+            rm -rf build/run/clientGameTest
+          done
+          echo "::error::客户端 GameTest 连续两次失败"
+          exit 1
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-gametest-screenshots
+          path: build/run/clientGameTest/screenshots
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: 上传客户端测试日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-gametest-logs
+          path: build/run/clientGameTest/logs
+          if-no-files-found: ignore
+          retention-days: 14
