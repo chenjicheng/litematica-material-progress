@@ -1,6 +1,7 @@
 package com.chenjicheng.lmp.net;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,15 +13,19 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 
 import com.chenjicheng.lmp.LmpMod;
 import com.chenjicheng.lmp.material.MaterialProgress;
 import com.chenjicheng.lmp.region.MaterialRegion;
+import com.chenjicheng.lmp.region.RegionEditor;
 import com.chenjicheng.lmp.region.RegionStore;
 import com.chenjicheng.lmp.scan.ScanScheduler;
 
@@ -34,9 +39,24 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class LmpServerNetworking implements ScanScheduler.Listener
 {
-    /** 与 {@code /lmp scan} 相同的权限闸（1.21.11 的 GAMEMASTERS 对应旧的权限等级 2）。 */
-    private static final Predicate<ServerCommandSource> FORCE_RESCAN_PERMISSION =
+    /**
+     * 有成本或会改状态的操作的权限闸，与 {@code /lmp scan}、{@code /lmp region} 完全相同
+     * （1.21.11 的 GAMEMASTERS 对应旧的权限等级 2）。
+     *
+     * <p>界面走 payload 不等于放宽权限：这条通道只是把同样的动作换成类型化字段，
+     * 服务端的校验、权限与限流一条都不少。
+     */
+    private static final Predicate<ServerCommandSource> EDIT_PERMISSION =
             CommandManager.requirePermissionLevel(CommandManager.GAMEMASTERS_CHECK);
+
+    /**
+     * 同一玩家编辑材料区的最小间隔。
+     *
+     * <p>一次保存或删除都会在当前 tick 上同步重写整个 {@code regions.json}。命令那侧由人手输入、
+     * 又有权限闸挡着，而 payload 这侧是可以被脚本刷的——没有这个间隔，一个改过的客户端就能让
+     * 服务端主线程持续做文件 I/O。
+     */
+    private static final long EDIT_COOLDOWN_MS = 1_000L;
 
     /**
      * 当前这一轮服务器生命周期对应的网络层。
@@ -50,12 +70,16 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
 
     private final RegionStore store;
     private final ScanScheduler scheduler;
+    private final RegionEditor editor;
+    /** 只在服务端主线程访问（接收器都经 {@code context.server().execute} 调度）。 */
+    private final Map<UUID, Long> lastEditAt = new HashMap<>();
     private @Nullable MinecraftServer server;
 
-    public LmpServerNetworking(RegionStore store, ScanScheduler scheduler)
+    public LmpServerNetworking(RegionStore store, ScanScheduler scheduler, RegionEditor editor)
     {
         this.store = store;
         this.scheduler = scheduler;
+        this.editor = editor;
     }
 
     public void register()
@@ -77,6 +101,28 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
                     if (net != null)
                     {
                         net.handleRequest(context.server(), context.player(), payload);
+                    }
+                }));
+
+        ServerPlayNetworking.registerGlobalReceiver(LmpPayloads.RegionSavePayload.ID, (payload, context) ->
+                context.server().execute(() ->
+                {
+                    LmpServerNetworking net = current;
+
+                    if (net != null)
+                    {
+                        net.handleRegionSave(context.server(), context.player(), payload);
+                    }
+                }));
+
+        ServerPlayNetworking.registerGlobalReceiver(LmpPayloads.RegionDeletePayload.ID, (payload, context) ->
+                context.server().execute(() ->
+                {
+                    LmpServerNetworking net = current;
+
+                    if (net != null)
+                    {
+                        net.handleRegionDelete(context.player(), payload);
                     }
                 }));
 
@@ -154,19 +200,112 @@ public final class LmpServerNetworking implements ScanScheduler.Listener
         {
             // 强制重扫会让服务端做一次全区域扫描，属于有成本的操作，因此与 /lmp scan 用同一道权限闸；
             // 只读地取快照则对所有玩家开放（下面这条路径）。
-            if (!FORCE_RESCAN_PERMISSION.test(player.getCommandSource()))
+            if (!EDIT_PERMISSION.test(player.getCommandSource()))
             {
-                player.sendMessage(Text.translatable("lmp.command.scan.not_permitted"), true);
+                player.sendMessage(Text.translatable("lmp.msg.scan.not_permitted"), true);
                 return;
             }
 
             // 手动刷新走「玩家触发」路径，因此受限流约束；被限流时明确告知，而不是静默无反应
             this.scheduler.requestScan(region, player.getUuid()).ifPresent(reason ->
-                    player.sendMessage(Text.translatable("lmp.command.scan." + reason), true));
+                    player.sendMessage(Text.translatable("lmp.msg.scan." + reason), true));
             return;
         }
 
         this.scheduler.onSnapshotRequested(server, region);
+    }
+
+    // ------------------------------------------------------------ 区域编辑（界面入口）
+
+    /**
+     * 客户端在设置界面点了「保存」。
+     *
+     * <p>这一层只做信任边界上的检查：维度必须是本服务器上真实存在的世界。区域自身的约束
+     * （体积、区块数、名称、绑定唯一性）由 {@link RegionEditor} 判定，与控制台命令共用同一套。
+     */
+    private void handleRegionSave(MinecraftServer server, ServerPlayerEntity player,
+                                  LmpPayloads.RegionSavePayload payload)
+    {
+        if (!this.allowedToEdit(player) || this.throttled(player))
+        {
+            return;
+        }
+
+        Identifier dimension = Identifier.tryParse(payload.dimension());
+
+        if (dimension == null || server.getWorld(RegistryKey.of(RegistryKeys.WORLD, dimension)) == null)
+        {
+            // 落库只会得到一个永远扫不到东西的区域，不如当场拒绝
+            player.sendMessage(Text.translatable("lmp.msg.region.bad_dimension", payload.dimension()), false);
+            return;
+        }
+
+        RegionEditor.Result result = this.editor.save(payload.regionId(), payload.name(), dimension,
+                payload.pos1(), payload.pos2(), payload.placementId(), player.getUuid());
+
+        this.report(player, result);
+
+        if (result.ok())
+        {
+            this.broadcastRegionList();
+        }
+    }
+
+    /** 客户端在设置界面点了「删除」。 */
+    private void handleRegionDelete(ServerPlayerEntity player, LmpPayloads.RegionDeletePayload payload)
+    {
+        if (!this.allowedToEdit(player) || this.throttled(player))
+        {
+            return;
+        }
+
+        RegionEditor.Result result = this.editor.delete(payload.regionId());
+
+        this.report(player, result);
+
+        if (result.ok())
+        {
+            this.broadcastRegionList();
+        }
+    }
+
+    /** 太频繁就明确回绝：一次编辑要同步写一遍整个文件，不能让客户端连着刷。 */
+    private boolean throttled(ServerPlayerEntity player)
+    {
+        long now = System.currentTimeMillis();
+        Long last = this.lastEditAt.get(player.getUuid());
+
+        if (last != null && now - last < EDIT_COOLDOWN_MS)
+        {
+            player.sendMessage(Text.translatable("lmp.msg.region.rate_limited"), false);
+            return true;
+        }
+
+        this.lastEditAt.put(player.getUuid(), now);
+        return false;
+    }
+
+    /** 权限不足时明确回绝：payload 不得成为命令权限的旁路。 */
+    private boolean allowedToEdit(ServerPlayerEntity player)
+    {
+        if (EDIT_PERMISSION.test(player.getCommandSource()))
+        {
+            return true;
+        }
+
+        player.sendMessage(Text.translatable("lmp.msg.not_permitted"), false);
+        return false;
+    }
+
+    /** 把编辑结果，以及「内存里成功但没落盘」这类提醒，一起发回给发起者。 */
+    private void report(ServerPlayerEntity player, RegionEditor.Result result)
+    {
+        player.sendMessage(Text.translatable(result.messageKey(), result.argsArray()), false);
+
+        if (result.warningKey() != null)
+        {
+            player.sendMessage(Text.translatable(result.warningKey()), false);
+        }
     }
 
     @Override

@@ -151,6 +151,113 @@ public class LmpGameTest
         context.complete();
     }
 
+    /**
+     * 取消一个区域的扫描，不得顺带丢掉另一个区域排队中的请求。
+     *
+     * <p>旧实现里 cancelRegion 借道 cancel()，而 cancel() 会把 queuedRegionId 一并清空——
+     * 删掉 A 的时候，B 的排队请求就没了，而且没有任何提示。用监听者在 A 的扫描状态刚发布时
+     * 排上 B 并取消 A，这样无论区域多小都能稳定命中这条路径。
+     */
+    @GameTest(maxTicks = 200)
+    public void cancellingOneRegionKeepsAnotherQueuedRequest(TestContext context) throws Exception
+    {
+        final ServerWorld world = context.getWorld();
+        final MinecraftServer server = world.getServer();
+        final Path dir = Files.createTempDirectory("lmp-gametest-queue");
+        final RegionStore store = RegionStore.load(RegionStore.fileFor(dir));
+        final MaterialRegion first = store.put(region(context, "first"));
+        final MaterialRegion second = store.put(region(context, "second"));
+        final ScanScheduler scheduler = new ScanScheduler(store, UnknownRequiredMaterialSource.INSTANCE);
+        final boolean[] handled = { false };
+
+        scheduler.addListener(new ScanScheduler.Listener()
+        {
+            @Override
+            public void onSnapshotUpdated(UUID regionId, MaterialProgress progress)
+            {
+            }
+
+            @Override
+            public void onStatusUpdated(UUID regionId, ScanScheduler.ScanStatus status)
+            {
+                if (!handled[0] && regionId.equals(first.id()) && status.phase() == ScanScheduler.Phase.SCANNING)
+                {
+                    handled[0] = true;
+                    scheduler.requestScan(second, null);
+                    scheduler.cancelRegion(first.id());
+                }
+            }
+        });
+
+        scheduler.requestScan(first, null);
+        scheduler.tick(server);
+
+        // 服务器忙的时候一 tick 可能整片跳过（自适应预算），所以推进到「第二个区域确实被扫过」为止，
+        // 而不是假设两 tick 就够
+        for (int i = 0; i < 20 && !(scheduler.isScanning(second.id()) || scheduler.snapshot(second.id()).isPresent()); i++)
+        {
+            scheduler.tick(server);
+        }
+
+        context.assertTrue(scheduler.isScanning(second.id()) || scheduler.snapshot(second.id()).isPresent(),
+                Text.literal("取消第一个区域不得把第二个区域的排队请求一起丢掉"));
+
+        context.complete();
+    }
+
+    /**
+     * 复现「扫描进行中玩家改了这个区域」（例如在设置界面里绑定共享原理图）：收尾不得把改动覆盖回去。
+     *
+     * <p>旧实现收尾时把「扫描开始时」捕获的那条记录<b>整条</b>写回存储，于是绑定被静默回滚，
+     * 而且回滚结果还会在服务器停止时落盘——用户编辑就此永久丢失。
+     *
+     * <p>用监听者在扫描刚启动（状态已发布、尚未推进）时改区域，这样无论区域多小都能稳定命中那条路径。
+     */
+    @GameTest(maxTicks = 200)
+    public void editsMadeDuringAScanSurviveTheScan(TestContext context) throws Exception
+    {
+        final ServerWorld world = context.getWorld();
+        final MinecraftServer server = world.getServer();
+        final Path dir = Files.createTempDirectory("lmp-gametest-edit");
+        final RegionStore store = RegionStore.load(RegionStore.fileFor(dir));
+        final MaterialRegion stored = store.put(region(context, "edited"));
+        final UUID placement = UUID.randomUUID();
+        final ScanScheduler scheduler = new ScanScheduler(store, UnknownRequiredMaterialSource.INSTANCE);
+
+        scheduler.addListener(new ScanScheduler.Listener()
+        {
+            @Override
+            public void onSnapshotUpdated(UUID regionId, MaterialProgress progress)
+            {
+            }
+
+            @Override
+            public void onStatusUpdated(UUID regionId, ScanScheduler.ScanStatus status)
+            {
+                if (regionId.equals(stored.id()) && status.phase() == ScanScheduler.Phase.SCANNING)
+                {
+                    // 玩家在扫描期间绑定了共享原理图
+                    store.put(store.byId(stored.id()).orElseThrow().withPlacement(placement));
+                }
+            }
+        });
+
+        scheduler.requestScan(stored, null);
+
+        for (int i = 0; i < 100 && (i == 0 || scheduler.isScanning(stored.id())); i++)
+        {
+            scheduler.tick(server);
+        }
+
+        MaterialRegion after = store.byId(stored.id()).orElseThrow();
+        context.assertTrue(placement.equals(after.placementId()),
+                Text.literal("扫描收尾不得回滚扫描期间的绑定，实际 " + after.placementId()));
+        context.assertTrue(after.lastScanAt() > 0L,
+                Text.literal("扫描结果本身仍然要写回（lastScanAt=" + after.lastScanAt() + "）"));
+
+        context.complete();
+    }
+
     /** 对照组：没被取消的扫描必须照常把结果写回存储，否则上面那条断言可能只是因为「什么都没发生」。 */
     @GameTest(maxTicks = 200)
     public void completedScanPersistsItsResult(TestContext context) throws Exception

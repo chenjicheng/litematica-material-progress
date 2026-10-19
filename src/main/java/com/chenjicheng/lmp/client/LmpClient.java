@@ -16,7 +16,6 @@ public class LmpClient implements ClientModInitializer
     public void onInitializeClient()
     {
         LmpClientNetworking.register();
-        LmpClientCommands.register();
         LmpKeybinds.register();
         LmpMod.LOGGER.info("{} 客户端组件已注册", LmpMod.MOD_ID);
     }

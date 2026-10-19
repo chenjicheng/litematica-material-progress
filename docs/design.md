@@ -15,12 +15,15 @@
 2. 服务端维护权威数据，客户端只获取和接收。
 3. 扫描异步分片，不抬高 MSPT，可取消、可恢复。
 4. 「已收集」只算材料区内的容器，不含玩家背包，也不含已放置的方块。
-5. 一个材料区对应一个 placement。只统计箱子类容器（箱子、陷阱箱、木桶），并递归统计箱内的潜影盒与收纳袋。
-   末影箱、漏斗、发射器、矿车不计。
+5. 一个材料区对应一个 placement。只统计箱子类容器：箱子、陷阱箱、木桶，以及**放置在地上的潜影盒**；
+   箱内与盒内的潜影盒、收纳袋递归统计。末影箱、漏斗、发射器、矿车不计。
 6. 所需材料按**全量原理图**统计。客户端必须标注这一点：玩家在 Litematica 里禁用子区域后，
    服务端算出的所需会大于其界面所示，不说明就会被当成缺陷。
 7. 进度同时显示两个维度：完成种类/总种类，已收集数/所需数。
-8. 完全重实现，不复制上游代码（LGPL-3.0 只允许链接与继承）。
+8. 完全重实现，不复制上游代码（LGPL-3.0 允许在不复制代码的前提下链接与调用）。正常路径只走公开
+   API；唯一例外是放置行上的入口按钮（见 6.2），它用 mixin 读上游的按钮游标——这是注入，不是复制。
+9. 区域录入以**界面**为玩家的唯一入口：入口挂在共享原理图的放置行上，划区在界面里完成，
+   玩家不再需要输入任何命令。
 
 ## 2. 架构
 
@@ -31,8 +34,9 @@
 | 服务端扫描器 | 分片扫描材料区内的容器并聚合 | `ServerTickEvents.END_SERVER_TICK` 驱动，自适应每 tick 预算 |
 | 服务端状态 | 保存材料区定义、进度快照与版本号 | 每世界一个 JSON 文件，原子写入 |
 | 所需材料 | 解析 Syncmatica 服务端保存的 `.litematic` | 服务端自行解析，不依赖客户端 |
+| 区域编辑 | 校验、拒绝理由、落库、取消扫描 | `RegionEditor`，界面与命令共用 |
 | 协议 | 客户端请求，服务端下发快照与状态 | 自有命名空间 `lmp` |
-| 客户端 | 显示进度，录入区域 | 复用 Litematica 的 `GuiMaterialList` |
+| 客户端 | 显示进度，录入区域 | 复用 Litematica 的 `GuiMaterialList`；设置界面自绘 |
 
 **为什么不复用上游的 payload 频道**：这是已核实的限制，不是风格选择。
 
@@ -94,9 +98,9 @@
 
 这次测量还暴露了一个缺陷，已修复。收尾那一 tick 原本会同步调用 `store.put()` 再 `save()` 写盘，
 实测把该 tick 顶到 **19.5ms**，接近半个 tick。现在扫描收尾只更新内存
-（`RegionStore.updateInMemory`，且只更新已存在的区域），持久化交给区域增删改和服务器停止时的 `save()`。
+（`RegionStore.applyScanResult`，且只更新已存在的区域，只改扫描结果那两个字段），持久化交给区域增删改和服务器停止时的 `save()`。
 收尾 tick 降到 2.1–7.8ms。代价是 `lastScanAt` 与 `coveragePermille` 不再每次扫描落盘，重启后界面显示
-「尚未扫描」。完成态快照本来也不持久化（见 LMP-6），重启后必然重扫。
+「还没有数据」。完成态快照本来也不持久化（见 LMP-6），重启后必然重扫。
 
 ### 3.4 容易踩错的语义
 
@@ -205,8 +209,10 @@
 | 方向 | payload | 字段 |
 | --- | --- | --- |
 | C2S | `lmp:request` | `regionId`、`knownRevision`、`forceRescan` |
+| C2S | `lmp:region_save` | `regionId?`（空表示新建）、`name`、`dimension`、`pos1`、`pos2`、`placementId?` |
+| C2S | `lmp:region_delete` | `regionId` |
 | S2C | `lmp:region_list` | 每条摘要含 `id`、`name`、`dimension`、`placementId`、`pos1`/`pos2`、`revision`、`lastScanAt`、`coveragePermille` |
-| S2C | `lmp:status` | `regionId`、`phase`、`revision`、`chunksDone`、`chunksTotal`、`containersScanned`、`coveragePermille` |
+| S2C | `lmp:status` | `regionId`、`phase`、`revision`、`chunksDone`、`chunksTotal`、`containersScanned`（覆盖率随 `lmp:snapshot` 下发） |
 | S2C | `lmp:snapshot` | `regionId`、`revision`、`status`（COMPLETE/PARTIAL/UNKNOWN）、`coveragePermille`、`entries[itemIdentifier, required, present]` |
 
 实现要点：
@@ -225,7 +231,12 @@
   而集成服务器可以在同一 JVM 里反复起停。接收器因此注册一次，且闭包不捕获某一轮的实例，
   每次回调取「当前」实例；否则重启之后仍由上一张地图的 store 和 scheduler 提供服务。
 - **协议层降级**：所有发送前检查 `canSend`。服务端未安装本模组时，客户端显示明确状态，不抛异常。
-  区域定义、删除和扫描走**命令**而非 payload。界面本身没有降级路径，见 6.1。
+  界面本身没有降级路径，见 6.1。
+- **区域编辑也走 payload**（`region_save` / `region_delete`）。界面不拼文本命令：名字因此可以含空格，
+  也少一层解析。代价是权限与校验要在服务端显式做一遍——`RegionEditor` 承担校验，
+  网络层负责权限闸，两条入口（payload 与 `/lmp`）拿到的是同一套判定。
+- **信任边界在维度上**：`dimension` 由客户端给出，服务端先确认这个维度在本服务器上真实存在，
+  否则拒绝。区域自身的约束（体积、区块数、名称长度、绑定唯一性）由 `RegionEditor` 判定。
 
 ## 6. 客户端
 
@@ -250,7 +261,7 @@
    因此种类进度挂在 `getTitleString()` 上，每次重绘重算。
 
 `reCreateMaterialList()` 重读客户端缓存并向服务端要一次快照，**绝不触发扫描**。是否真的重扫由服务端
-按快照 TTL 决定，所以反复点「刷新」不会变成扫描风暴。强制重扫走 `/lmpc refresh`。
+按快照 TTL 决定，所以反复点「刷新」不会变成扫描风暴。强制重扫走设置界面里的「重新扫描」。
 
 标题后缀标注两件容易被误当成缺陷的事：
 
@@ -273,31 +284,72 @@
 
 | 入口 | 实现 | 说明 |
 | --- | --- | --- |
+| 放置行上的「材料」按钮 | `MixinWidgetSchematicPlacement` + `LmpPlacementEntry` | **主要入口**。只对已共享（Syncmatica 已知）的放置出现 |
 | 热键 `K` | `LmpKeybinds` | 默认键与 Litematica 的 M、I 以及原版都不冲突；分类独立为 `key.category.lmp.main` |
-| `/lmpc gui [名称]` | `LmpClientCommands` | 无参数时按「脚下、当前维度唯一、列出可选」的顺序选择区域 |
-| Syncmatica 按钮 mixin | 未实现 | 依赖上游按钮索引，会随版本失效；已记为后续项 |
+| 材料区清单 | `LmpGuiRegionList` | 脚下没有材料区、当前维度又不止一个时的选择入口；空清单给出指路提示 |
+
+**为什么这里破例用了 mixin。** Litematica 没有「给放置行加按钮」的公开扩展点，
+Syncmatica 自己也靠 mixin 做同一件事（它加的是「分享」按钮）。本模组沿用它的约定：
+读目标类的 `buttonsStartX`，把按钮放在它左边，再把游标左移，让后挂按钮的模组接着往左排，
+因此两个模组不会重叠。
+
+代价是上游改了 `WidgetSchematicPlacement` 的构造函数就会失效。处理方式是把失败限制在
+「少一个按钮」：注入点 `require = 0`、mixin 配置文件 `required = false`、挂按钮的代码整段兜住
+`RuntimeException | LinkageError`。上游结构变化时玩家看不到入口，但放置列表照常打开、客户端不崩。
+依赖缺失时目标类根本不会被加载，mixin 自然也不应用。
+
+**跳过是安静的**：`require = 0` 让「注入点找不到」既不抛异常也不打日志。因此客户端 GameTest 里
+有一项专门检查这事——加载放置行类、确认 mixin 已合并进去、确认注入用的构造函数签名还在。
+上游结构漂移会在 CI 里以失败的用例出现，而不是等到玩家发现入口不见了。
 
 ### 6.3 区域录入
 
-区域录入以命令为唯一真相。客户端命令 `/lmpc` 刻意带后缀：连接服务器时服务端命令会覆盖同名客户端命令，
-而 `/lmp` 是服务端命令树。`/lmpc` 自己不修改状态，只把动作翻译成服务端命令再发出去，
-因此服务端的校验、权限和限流一条都不少。
+玩家只走界面：设置界面收集名称与范围，通过 `lmp:region_save` / `lmp:region_delete` 提交。
+界面自己不做权威判断——它只是把意图发出去，服务端用与命令路径完全相同的一套校验处理。
 
-| 客户端命令 | 翻译成 | 用途 |
-| --- | --- | --- |
-| `/lmpc pos1`、`/lmpc pos2` | `lmp region pos1 <x y z>` | 用 `MinecraftClient.crosshairTarget` 取视线方块，不依赖 Litematica 内部 API |
-| `/lmpc from-selection <名称>` | `pos1` + `pos2` + `create` | 读取 Litematica 当前选区；多个子区域取并集 |
-| `/lmpc create <名称>` | `lmp region create <名称>` | 固化区域 |
-| `/lmpc bind <材料区> <placementId>` | `lmp region bind` | 绑定共享放置 |
-| `/lmpc placements` | 纯客户端 | 列出 Syncmatica 客户端已知的放置，点击即可填入绑定命令，不必手抄 UUID |
-| `/lmpc refresh [名称]` | `lmp:request{forceRescan}` | 强制重扫，仍受服务端按玩家限流 |
+这样安排的三个直接结果：
 
-Litematica **没有**选区变更的公开监听器：placement 有 `SchematicPlacementEventHandler`，选区没有。
-因此 `from-selection` 只在按下时读一次快照，不做持续跟随。
+- **名字可以含空格**。文本命令要分词，payload 不用。
+- **绑定是保存的一部分**。界面是从某个共享原理图打开的，保存时自然带上它的 placementId，
+  不需要玩家再执行一次「绑定」。
+- **拒绝理由只有一处**。`RegionEditor` 决定「为什么不行、怎么说」，两个入口只负责渲染。
 
-**未实现**（已记为 LMP-7）：在 `create` 时按「包含区域中心的 placement」自动绑定。它需要 placement 的包围盒，
-而 Syncmatica 的 `ServerPlacement` 只有位置、旋转和镜像，没有尺寸。尺寸要由第 4 节的解析器读出
-`Metadata.EnclosingSize` 之后才能自动绑定。
+**选区只在按下时读一次快照**：Litematica 没有选区变更的公开监听器（placement 有
+`SchematicPlacementEventHandler`，选区没有），所以「用 Litematica 选区」不做持续跟随。
+玩家在别的维度时这个按钮直接禁用并说明原因，而不是取到别处的坐标再让服务端拒绝。
+
+**控制台入口保留**。`/lmp region create|bind|list|info|delete`、`/lmp scan`、`/lmp status`
+留给控制台、数据包与排障，权限等级 2。`create` 的角点直接写在参数里：原先「先 pos1 再 pos2 最后 create」
+的待定状态只服务于已删除的客户端命令，服务端不再保存任何跨命令的临时状态。
+名字已存在时 `create` 更新那一条并明确回复「已更新」，控制台因此不需要区分 create 与 edit。
+
+**未实现**（已记为 LMP-7）：按「包含区域中心的 placement」自动绑定。界面路径不需要它
+（绑定随保存一起发生），它只对控制台的 `create` 有意义。
+
+### 6.4 设置界面
+
+`LmpGuiPlacementSettings` 是一个 malilib 的 `GuiBase`。它只接受**纯数据**
+（`placementId + 名字 + 维度 + 包围盒`），不持有任何上游对象——因此它能在没有真实原理图时被
+客户端 GameTest 直接构造。上游对象只出现在两处桥接里，且都有可用性守卫：
+`LmpPlacementBridge`（放置 → 纯数据）与 `LmpSelectionBridge`（选区 → 两个角点）。
+
+界面分三块：状态（当前有没有材料区、扫没扫过、覆盖率、两个维度的进度）、范围（两个角点与体积/上限）、
+动作（保存、删除、打开进度、重新扫描）。
+
+几条经过权衡的取舍：
+
+- **范围与校验先在本地跑一遍**。判据与服务端共用 `MaterialRegion.validate()`，所以两边不可能给出
+  不同结论；`RegionDraft` 只是把这份判据搬到发出请求之前，让玩家立刻看到「太大 / 名称为空」，
+  而不是等一个来回。它不承担信任——服务端仍然独立校验。
+- **不说「保存成功」**。界面只负责提交，服务端的回复出现在聊天栏里。界面自己报成功会把
+  「服务端其实拒绝了」说成成功。
+- **按钮动作是公开方法**（`save()` / `applySchematicBounds()` / …），监听器只做转发。
+  这样客户端 GameTest 既能真的用鼠标点（验证「按钮在、点得到、有反应」），也能在需要时直接调，
+  不必为了测试去模拟鼠标轨迹。
+- **范围取不到时禁用按钮并说明原因**，而不是静默无反应：原理图尺寸未知时禁用「用原理图范围」，
+  玩家不在该维度时禁用「用 Litematica 选区」。
+- **保存成功后接住新区域**：区域清单广播回来时把 `regionId` 填上，否则「删除」与「打开进度」
+  在保存之后会一直是灰的。
 
 ## 7. 数据模型
 
@@ -305,9 +357,13 @@ Litematica **没有**选区变更的公开监听器：placement 有 `SchematicPl
 写入是原子的：先写临时文件，再替换目标文件。
 
 ```
-{ version, regions: [ { id, name, dimension, pos1, pos2, placementId?, owner, createdAt,
-                        lastScanAt, revision, coveragePermille } ] }
+{ version, revisionCounter, regions: [ { id, name, dimension, pos1, pos2, placementId?, owner, createdAt,
+                                       lastScanAt, revision, coveragePermille } ] }
 ```
+
+`revisionCounter` 是全局单调计数器，必须一起持久化：只存每个区域的 `revision` 而不存计数器，
+重启后计数器从 0 重新开始，新区域的版本号会小于客户端手里的旧值，客户端就会一直丢弃新快照。
+`version` 在读取时会被核对，版本不认识时按「尽力读取」处理并告警。
 
 **坐标运算一律使用 long。** `pos2 - pos1 + 1` 在 int 域里会溢出：极端坐标下
 `Integer.MAX_VALUE - Integer.MIN_VALUE + 1` 恰好回绕成 0，于是「整张地图那么大」的区域体积算成 0、
@@ -337,9 +393,13 @@ Litematica **没有**选区变更的公开监听器：placement 有 `SchematicPl
 
 | 命令 | 覆盖 |
 | --- | --- |
-| `./gradlew test` | 66 个单元测试：计数语义、区域校验与存储、原理图解析、材料折算、进度算术 |
-| `./gradlew runGameTest` | 5 个 GameTest，跑在真实服务端上：扫描真实区块里的方块实体、取消后不复活已删除区域、正常完成的扫描照常落库、扫描开销测量 |
-| `./gradlew runClientGameTest` | 1 个客户端 GameTest：真实客户端里打开进度界面、断言两个维度的数值、Available 列语义与监听者不泄漏，并留下截图 |
+| `./gradlew test` | 109 个单元测试：计数语义、区域校验与存储、区域编辑的全部拒绝分支、协议编解码往返、客户端缓存更新规则、语言文件一致性、原理图解析、材料折算、进度算术 |
+| `./gradlew runGameTest` | 5 个 GameTest，跑在真实服务端上：扫描真实区块里的方块实体、取消后不复活已删除区域、扫描期间的区域编辑不被收尾回滚、正常完成的扫描照常落库、扫描开销测量 |
+| `./gradlew runClientGameTest` | 2 个客户端 GameTest：真实客户端里打开进度界面并断言两个维度的数值与 Available 列语义；以及「打开设置界面 → 点「用原理图范围」→ 点「保存」→ 服务端落库并广播 → 点「删除」」的端到端路径，两者都留下截图 |
+
+客户端那条端到端用例用**真实鼠标点击**驱动（按按钮坐标乘上 GUI 缩放后发点击事件），
+因此覆盖的是完整链路：按钮 → 界面动作 → payload → 服务端权限与校验 → 存储 → 广播 → 客户端缓存。
+它需要一个开了作弊的世界：改材料区要求权限等级 2，而未开作弊的单人世界主机权限等级是 0。
 
 前两层并入 `./gradlew build`。第三层会拉起图形客户端，只适合人工触发。
 
@@ -361,6 +421,12 @@ Litematica **没有**选区变更的公开监听器：placement 有 `SchematicPl
   `NoClassDefFoundError: ...RestrictiveMixinConfigPlugin`，Litematica 与 malilib 按条件启用的那部分 mixin
   因此没有加载。界面功能正常，但开发环境并不完全等同于生产环境。
 - **上游耦合**。`GuiMaterialList` 与 `SelectionManager` 都是内部包，没有 API 稳定性承诺。
-  取舍见 6.1：不做降级界面，只在打开界面时捕获 `LinkageError` 并提示。Syncmatica 的按钮 mixin 未实现。
+  取舍见 6.1：不做降级界面，只在打开界面时捕获 `LinkageError` 并提示。
+- **放置行按钮依赖上游构造函数签名**。见 6.2：注入点与配置文件都设成「失败不致命」，
+  上游改结构时结果是「少一个按钮」而不是客户端打不开。代价是失效时既没有界面提示、日志也不报错
+  （`require = 0` 让跳过保持安静），只有客户端 GameTest 里那条 hook 检查会发现；控制台命令仍然可用。
+- **改材料区需要权限等级 2**。界面与命令共用这道闸（payload 不是命令权限的旁路），
+  因此未开作弊的单人世界主机（权限等级 0）无法保存材料区，会收到一句明确的拒绝。
+  这条策略沿用了命令路径的原有默认值，本次没有改动；已记为 LMP-11 讨论是否对集成服务器主机放宽。
 - **许可**。Litematica、malilib、Servux 为 LGPL-3.0，Syncmatica 为 CC0-1.0。本项目不复制其代码，
   只做链接与继承。

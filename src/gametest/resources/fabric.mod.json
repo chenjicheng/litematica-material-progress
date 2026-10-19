@@ -10,7 +10,8 @@
       "com.chenjicheng.lmp.gametest.LmpScanCostGameTest"
     ],
     "fabric-client-gametest": [
-      "com.chenjicheng.lmp.gametest.LmpClientGameTest"
+      "com.chenjicheng.lmp.gametest.LmpClientGameTest",
+      "com.chenjicheng.lmp.gametest.LmpClientSetupGameTest"
     ]
   },
   "depends": {

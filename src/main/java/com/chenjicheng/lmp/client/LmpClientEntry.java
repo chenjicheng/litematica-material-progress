@@ -1,12 +1,8 @@
 package com.chenjicheng.lmp.client;
 
 import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
 
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.text.ClickEvent;
-import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
@@ -46,15 +42,19 @@ public final class LmpClientEntry
         }
 
         LmpPayloads.RegionInfo target = regionAtPlayer(client, regions);
+        List<LmpPayloads.RegionInfo> here = inPlayerDimension(client, regions);
 
-        if (target == null && regions.size() == 1)
+        // 「唯一」指的是**当前维度**唯一：别的维度有十个材料区，也不该让玩家在这里被反问
+        if (target == null && here.size() == 1)
         {
-            target = regions.get(0);
+            target = here.get(0);
         }
 
         if (target == null)
         {
-            listRegions(client, regions);
+            // 以前这里往聊天栏刷一行行「点一下填命令」的文字；命令行入口删掉之后，
+            // 改成正经的清单界面
+            LmpProgressScreens.openRegionList();
             return;
         }
 
@@ -66,13 +66,18 @@ public final class LmpClientEntry
         LmpProgressScreens.open(info.id(), info.name());
     }
 
-    public static Optional<LmpPayloads.RegionInfo> byName(String name)
+    /** 当前维度里的材料区。维度未知（还没进世界）时按「全都算」处理，避免把入口锁死。 */
+    private static List<LmpPayloads.RegionInfo> inPlayerDimension(MinecraftClient client,
+                                                                  List<LmpPayloads.RegionInfo> regions)
     {
-        String needle = name.toLowerCase(Locale.ROOT);
+        if (client.world == null)
+        {
+            return regions;
+        }
 
-        return ClientProgressStore.get().regions().stream()
-                .filter(info -> info.name().toLowerCase(Locale.ROOT).equals(needle))
-                .findFirst();
+        String dimension = client.world.getRegistryKey().getValue().toString();
+
+        return regions.stream().filter(info -> dimension.equals(info.dimension())).toList();
     }
 
     /** 玩家脚下（含所站方块的坐标）的材料区；不在任何区域里则返回 null。 */
@@ -95,21 +100,6 @@ public final class LmpClientEntry
         }
 
         return null;
-    }
-
-    private static void listRegions(MinecraftClient client, List<LmpPayloads.RegionInfo> regions)
-    {
-        message(client, Text.translatable("lmp.gui.list.header").formatted(Formatting.YELLOW));
-
-        for (LmpPayloads.RegionInfo info : regions)
-        {
-            MutableText line = Text.literal("- " + info.name() + "  ")
-                    .append(Text.literal(info.dimension() + "  ").formatted(Formatting.GRAY))
-                    .append(Text.literal(info.volume() + " ").formatted(Formatting.GRAY))
-                    .append(Text.translatable("lmp.gui.list.open").formatted(Formatting.AQUA))
-                    .styled(style -> style.withClickEvent(new ClickEvent.SuggestCommand("/lmpc gui " + info.name())));
-            message(client, line);
-        }
     }
 
     private static void message(MinecraftClient client, Text text)

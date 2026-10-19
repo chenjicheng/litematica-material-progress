@@ -256,17 +256,21 @@ public final class LitematicReader
         }
 
         final int bitsPerEntry = bitsForPalette(paletteSize);
-        final long volume = (long) sizeX * (long) sizeY * (long) sizeZ;
+        final long volume;
         final long requiredLongs;
 
         try
         {
+            // 逐级 multiplyExact：三个 int 直接相乘会静默溢出 long（每个都可能是 2^31 量级），
+            // 溢出后体积变成一个小数，下面「BlockStates 被截断」的保护就再也拦不住这种文件
+            volume = Math.multiplyExact(Math.multiplyExact((long) sizeX, (long) sizeY), (long) sizeZ);
             final long totalBits = Math.multiplyExact(volume, (long) bitsPerEntry);
-            requiredLongs = (totalBits + 63L) / 64L;
+            // +63 本身也可能溢出：totalBits 已经在 long 顶端时，回绕成负数会让「数组被截断」的检查失效
+            requiredLongs = Math.addExact(totalBits, 63L) / 64L;
         }
         catch (ArithmeticException e)
         {
-            LmpMod.LOGGER.warn("原理图 {} 的区域 {} 体积过大（{}），拒绝解析", file, regionName, volume);
+            LmpMod.LOGGER.warn("原理图 {} 的区域 {} 体积过大，拒绝解析", file, regionName);
             return Optional.empty();
         }
 
@@ -352,12 +356,18 @@ public final class LitematicReader
         return copy;
     }
 
+    /**
+     * 这个方块名是不是空气。
+     *
+     * <p>必须把带命名空间与不带命名空间的写法都列上：判据是「调色板里有名字却解析成 AIR 就拒绝」，
+     * 而 {@code NbtHelper.toBlockState} 对没有冒号的名字会按 {@code minecraft} 命名空间解析。
+     * 少列一个写法，一份完全合法的原理图就会被误拒。
+     */
     private static boolean isAirBlockName(String name)
     {
-        return name.equals("minecraft:air")
-                || name.equals("air")
-                || name.equals("minecraft:cave_air")
-                || name.equals("minecraft:void_air");
+        String path = name.startsWith("minecraft:") ? name.substring("minecraft:".length()) : name;
+
+        return path.equals("air") || path.equals("cave_air") || path.equals("void_air");
     }
 
     /** 先按 gzip 读；失败再按未压缩读一次（少数工具写出的 NBT 未压缩）。 */

@@ -18,17 +18,17 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
-import com.chenjicheng.lmp.LmpMod;
 import com.chenjicheng.lmp.LmpServer;
 import com.chenjicheng.lmp.region.MaterialRegion;
+import com.chenjicheng.lmp.region.RegionEditor;
 import com.chenjicheng.lmp.region.RegionStore;
-import com.chenjicheng.lmp.scan.ScanScheduler;
 
 /**
  * {@code /lmp} 命令树：区域录入、扫描触发与状态查询。
  *
- * <p>区域录入以命令为唯一真相（GUI 只是把角点和名字拼成同样的命令发过来），这样：
- * 用 Litematica 选区工具、用视线取点、用坐标直填三种方式最终都落到同一套服务端校验上。
+ * <p><b>这不是玩家的主要入口。</b>玩家在共享原理图的放置列表里点按钮，走界面与 payload；
+ * 这里保留命令是为了控制台、数据包与排障——专用服务器上没有界面，但运维仍需要能看一眼、
+ * 改一下区域。两条入口共用 {@link RegionEditor}，因此校验、权限、限流与拒绝理由完全一致。
  *
  * <p>权限：默认要求权限等级 2（OP）。服务端的「谁能改材料区」是运维决策，
  * 这里选择一个不依赖额外权限模组的保守默认值。
@@ -49,129 +49,68 @@ public final class LmpCommand
                 dispatcher.register(CommandManager.literal("lmp")
                         .requires(CommandManager.requirePermissionLevel(REQUIRED_PERMISSION))
                         .then(CommandManager.literal("region")
-                                .then(CommandManager.literal("pos1")
-                                        .then(CommandManager.argument("pos", BlockPosArgumentType.blockPos())
-                                                .executes(context -> setCorner(context, 1))))
-                                .then(CommandManager.literal("pos2")
-                                        .then(CommandManager.argument("pos", BlockPosArgumentType.blockPos())
-                                                .executes(context -> setCorner(context, 2))))
+                                // 角点直接写在参数里：不再有「先 pos1 再 pos2 最后 create」的待定状态。
+                                // 界面的保存请求自带两个角点，服务端不需要跨命令保存临时状态。
                                 .then(CommandManager.literal("create")
-                                        .then(CommandManager.argument("name", StringArgumentType.word())
-                                                .executes(LmpCommand::create)))
+                                        .then(CommandManager.argument("name", StringArgumentType.string())
+                                                .then(CommandManager.argument("pos1", BlockPosArgumentType.blockPos())
+                                                        .then(CommandManager.argument("pos2", BlockPosArgumentType.blockPos())
+                                                                .executes(LmpCommand::create)))))
                                 .then(CommandManager.literal("bind")
-                                        .then(CommandManager.argument("name", StringArgumentType.word())
+                                        .then(CommandManager.argument("name", StringArgumentType.string())
                                                 .then(CommandManager.argument("placement", StringArgumentType.word())
                                                         .executes(LmpCommand::bind))))
                                 .then(CommandManager.literal("list").executes(LmpCommand::list))
                                 .then(CommandManager.literal("info")
-                                        .then(CommandManager.argument("name", StringArgumentType.word())
+                                        .then(CommandManager.argument("name", StringArgumentType.string())
                                                 .executes(LmpCommand::info)))
                                 .then(CommandManager.literal("delete")
-                                        .then(CommandManager.argument("name", StringArgumentType.word())
+                                        .then(CommandManager.argument("name", StringArgumentType.string())
                                                 .executes(LmpCommand::delete))))
                         .then(CommandManager.literal("scan")
                                 .executes(context -> scan(context, null))
-                                .then(CommandManager.argument("name", StringArgumentType.word())
+                                .then(CommandManager.argument("name", StringArgumentType.string())
                                         .executes(context -> scan(context, StringArgumentType.getString(context, "name")))))
                         .then(CommandManager.literal("status").executes(LmpCommand::status))));
     }
 
-    // ------------------------------------------------------------ region pos1/pos2
+    // ------------------------------------------------------------ region create / bind
 
-    private static int setCorner(CommandContext<ServerCommandSource> context, int corner)
-    {
-        ServerPlayerEntity player = context.getSource().getPlayer();
-
-        if (player == null)
-        {
-            error(context, "lmp.command.player_only");
-            return 0;
-        }
-
-        BlockPos pos = BlockPosArgumentType.getBlockPos(context, "pos");
-        Identifier dimension = context.getSource().getWorld().getRegistryKey().getValue();
-        LmpServer.selections().setCorner(player.getUuid(), dimension, corner, pos);
-
-        context.getSource().sendFeedback(() -> Text.translatable(
-                corner == 1 ? "lmp.command.region.pos1" : "lmp.command.region.pos2",
-                pos.getX(), pos.getY(), pos.getZ()), false);
-        return 1;
-    }
-
-    // ------------------------------------------------------------ region create
-
+    /** 名字已存在就更新那一条，否则新建；因此控制台不需要区分 create 与 edit 两个动词。 */
     private static int create(CommandContext<ServerCommandSource> context)
     {
-        RegionStore store = LmpServer.store().orElse(null);
+        RegionEditor editor = LmpServer.editor().orElse(null);
 
-        if (store == null)
+        if (editor == null)
         {
-            error(context, "lmp.command.not_ready");
-            return 0;
-        }
-
-        ServerPlayerEntity player = context.getSource().getPlayer();
-
-        if (player == null)
-        {
-            error(context, "lmp.command.player_only");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
         String name = StringArgumentType.getString(context, "name");
+        BlockPos pos1 = BlockPosArgumentType.getBlockPos(context, "pos1");
+        BlockPos pos2 = BlockPosArgumentType.getBlockPos(context, "pos2");
+        Identifier dimension = context.getSource().getWorld().getRegistryKey().getValue();
 
-        if (findByName(store, name).isPresent())
+        RegionEditor.Result result = editor.saveByName(name, dimension, pos1, pos2, null, actorId(context));
+        int outcome = report(context, result);
+
+        if (result.ok())
         {
-            error(context, "lmp.command.region.exists", name);
-            return 0;
+            LmpServer.onRegionsChanged();
         }
 
-        RegionSelectionState.PendingSelection selection = LmpServer.selections().get(player.getUuid()).orElse(null);
-
-        if (selection == null || !selection.isComplete())
-        {
-            error(context, "lmp.command.region.missing_corners");
-            return 0;
-        }
-
-        MaterialRegion region = new MaterialRegion(UUID.randomUUID(), name, selection.dimension(),
-                selection.pos1(), selection.pos2(), null, player.getUuid(), System.currentTimeMillis(), 0L, 0L, 0);
-        Optional<MaterialRegion.Invalid> invalid = region.validate();
-
-        if (invalid.isPresent())
-        {
-            // 三个原因的 i18n 参数个数不同，必须分别给，不能一律塞 (体积, 区块数)
-            switch (invalid.get())
-            {
-                case TOO_LARGE -> error(context, MaterialRegion.Invalid.TOO_LARGE.key(),
-                        region.volume(), MaterialRegion.MAX_VOLUME);
-                case TOO_MANY_CHUNKS -> error(context, MaterialRegion.Invalid.TOO_MANY_CHUNKS.key(),
-                        region.chunkCount());
-                case EMPTY_NAME -> error(context, MaterialRegion.Invalid.EMPTY_NAME.key());
-            }
-
-            return 0;
-        }
-
-        store.put(region);
-        LmpServer.selections().clear(player.getUuid());
-        LmpServer.onRegionsChanged();
-        warnIfNotPersisted(context, store);
-
-        context.getSource().sendFeedback(() -> Text.translatable("lmp.command.region.created", name,
-                region.volume(), region.chunkCount()), true);
-        return 1;
+        return outcome;
     }
-
-    // ------------------------------------------------------------ region bind
 
     private static int bind(CommandContext<ServerCommandSource> context)
     {
         RegionStore store = LmpServer.store().orElse(null);
+        RegionEditor editor = LmpServer.editor().orElse(null);
 
-        if (store == null)
+        if (store == null || editor == null)
         {
-            error(context, "lmp.command.not_ready");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
@@ -181,7 +120,7 @@ public final class LmpCommand
 
         if (region == null)
         {
-            error(context, "lmp.command.region.not_found", name);
+            error(context, "lmp.msg.region.not_found", name);
             return 0;
         }
 
@@ -193,16 +132,21 @@ public final class LmpCommand
         }
         catch (IllegalArgumentException e)
         {
-            error(context, "lmp.command.region.bad_placement", placementRaw);
+            error(context, "lmp.msg.region.bad_placement", placementRaw);
             return 0;
         }
 
-        store.put(region.withPlacement(placementId));
-        LmpServer.onRegionsChanged();
-        warnIfNotPersisted(context, store);
-        context.getSource().sendFeedback(() -> Text.translatable("lmp.command.region.bound", name,
-                placementId.toString()), true);
-        return 1;
+        // 走 save 而不是直接改字段：绑定唯一性、名称与体积校验都在同一处判定
+        RegionEditor.Result result = editor.save(region.id(), region.name(), region.dimension(),
+                region.pos1(), region.pos2(), placementId, null);
+        int outcome = report(context, result);
+
+        if (result.ok())
+        {
+            LmpServer.onRegionsChanged();
+        }
+
+        return outcome;
     }
 
     // ------------------------------------------------------------ region list/info/delete
@@ -213,7 +157,7 @@ public final class LmpCommand
 
         if (store == null)
         {
-            error(context, "lmp.command.not_ready");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
@@ -244,7 +188,7 @@ public final class LmpCommand
 
         if (store == null)
         {
-            error(context, "lmp.command.not_ready");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
@@ -253,7 +197,7 @@ public final class LmpCommand
 
         if (region == null)
         {
-            error(context, "lmp.command.region.not_found", name);
+            error(context, "lmp.msg.region.not_found", name);
             return 0;
         }
 
@@ -269,10 +213,11 @@ public final class LmpCommand
     private static int delete(CommandContext<ServerCommandSource> context)
     {
         RegionStore store = LmpServer.store().orElse(null);
+        RegionEditor editor = LmpServer.editor().orElse(null);
 
-        if (store == null)
+        if (store == null || editor == null)
         {
-            error(context, "lmp.command.not_ready");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
@@ -281,17 +226,19 @@ public final class LmpCommand
 
         if (region == null)
         {
-            error(context, "lmp.command.region.not_found", name);
+            error(context, "lmp.msg.region.not_found", name);
             return 0;
         }
 
-        // 只取消这个区域自己的扫描：取消全部会顺带打断另一个无关区域的扫描
-        LmpServer.scheduler().ifPresent(scheduler -> scheduler.cancelRegion(region.id()));
-        store.remove(region.id());
-        LmpServer.onRegionsChanged();
-        warnIfNotPersisted(context, store);
-        context.getSource().sendFeedback(() -> Text.translatable("lmp.command.region.deleted", name), true);
-        return 1;
+        RegionEditor.Result result = editor.delete(region.id());
+        int outcome = report(context, result);
+
+        if (result.ok())
+        {
+            LmpServer.onRegionsChanged();
+        }
+
+        return outcome;
     }
 
     // ------------------------------------------------------------ scan / status
@@ -299,11 +246,11 @@ public final class LmpCommand
     private static int scan(CommandContext<ServerCommandSource> context, String name)
     {
         RegionStore store = LmpServer.store().orElse(null);
-        ScanScheduler scheduler = LmpServer.scheduler().orElse(null);
+        RegionEditor editor = LmpServer.editor().orElse(null);
 
-        if (store == null || scheduler == null)
+        if (store == null || editor == null)
         {
-            error(context, "lmp.command.not_ready");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
@@ -315,7 +262,7 @@ public final class LmpCommand
 
             if (region == null)
             {
-                error(context, "lmp.command.region.not_found", name);
+                error(context, "lmp.msg.region.not_found", name);
                 return 0;
             }
         }
@@ -333,28 +280,14 @@ public final class LmpCommand
             region = candidates.get(0);
         }
 
-        ServerPlayerEntity player = context.getSource().getPlayer();
-        UUID playerId = player == null ? null : player.getUuid();
-        Optional<String> failure = scheduler.requestScan(region, playerId);
-
-        if (failure.isPresent())
-        {
-            error(context, "lmp.command.scan." + failure.get());
-            return 0;
-        }
-
-        MaterialRegion target = region;
-        context.getSource().sendFeedback(() -> Text.translatable("lmp.command.scan.started", target.name()), true);
-        return 1;
+        return report(context, editor.rescan(region.id(), actorId(context)));
     }
 
     private static int status(CommandContext<ServerCommandSource> context)
     {
-        ScanScheduler scheduler = LmpServer.scheduler().orElse(null);
-
-        if (scheduler == null)
+        if (LmpServer.scheduler().isEmpty())
         {
-            error(context, "lmp.command.not_ready");
+            error(context, "lmp.msg.not_ready");
             return 0;
         }
 
@@ -362,7 +295,7 @@ public final class LmpCommand
 
         for (MaterialRegion region : LmpServer.store().map(RegionStore::all).orElse(List.of()))
         {
-            ScanScheduler.ScanStatus scanStatus = scheduler.status(region.id()).orElse(null);
+            var scanStatus = LmpServer.scheduler().flatMap(scheduler -> scheduler.status(region.id())).orElse(null);
 
             if (scanStatus == null)
             {
@@ -393,18 +326,34 @@ public final class LmpCommand
                 .findFirst();
     }
 
-    /**
-     * 写盘失败时明确告知玩家。
-     *
-     * <p>内存里的改动是成功的，所以命令本身不算失败；但重启之后它会消失，
-     * 只留一条服务端日志的话，玩家会以为已经存住了。
-     */
-    private static void warnIfNotPersisted(CommandContext<ServerCommandSource> context, RegionStore store)
+    private static UUID actorId(CommandContext<ServerCommandSource> context)
     {
-        if (!store.lastSaveSucceeded())
+        ServerPlayerEntity player = context.getSource().getPlayer();
+        return player == null ? null : player.getUuid();
+    }
+
+    /**
+     * 把编辑结果渲染成反馈。
+     *
+     * <p>失败返回 0（命令确实没成功）；成功时若服务端没能落盘，再补一条明确的提醒——
+     * 内存里的改动是成功的，重启之后却会消失。
+     */
+    private static int report(CommandContext<ServerCommandSource> context, RegionEditor.Result result)
+    {
+        if (!result.ok())
         {
-            context.getSource().sendError(Text.translatable("lmp.command.region.save_failed"));
+            context.getSource().sendError(Text.translatable(result.messageKey(), result.argsArray()));
+            return 0;
         }
+
+        context.getSource().sendFeedback(() -> Text.translatable(result.messageKey(), result.argsArray()), true);
+
+        if (result.warningKey() != null)
+        {
+            context.getSource().sendError(Text.translatable(result.warningKey()));
+        }
+
+        return 1;
     }
 
     private static void error(CommandContext<ServerCommandSource> context, String key, Object... args)

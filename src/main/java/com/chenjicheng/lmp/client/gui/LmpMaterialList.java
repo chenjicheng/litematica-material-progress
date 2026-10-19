@@ -70,7 +70,7 @@ public class LmpMaterialList extends MaterialListBase
      * 「刷新」= 重读客户端缓存 + 向服务端要一次快照，**绝不**在这里触发扫描。
      *
      * <p>是否真的重扫由服务端按快照 TTL 决定：界面上反复点刷新不会变成扫描风暴。
-     * 玩家想强制重扫时用 {@code /lmpc refresh} 或回退界面上的按钮（那里会带 force 标记）。
+     * 玩家想强制重扫时用设置界面里的「重新扫描」（那条请求带 force 标记）。
      */
     @Override
     public void reCreateMaterialList()

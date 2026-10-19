@@ -12,6 +12,8 @@ import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
 
+import fi.dy.masa.malilib.util.StringUtils;
+
 import com.chenjicheng.lmp.LmpMod;
 import com.chenjicheng.lmp.client.ClientProgressStore;
 import com.chenjicheng.lmp.client.gui.LmpGuiMaterialList;
@@ -55,6 +57,9 @@ public class LmpClientGameTest implements FabricClientGameTest
             context.waitFor(client -> client.player != null);
             context.waitTicks(20);
 
+            // 两个客户端用例在同一个 JVM 里顺序跑，共用同一个单例缓存：
+            // 先清一次，监听者计数才是本用例自己的
+            context.runOnClient(client -> ClientProgressStore.get().reset());
             context.runOnClient(client -> seedStore(regionId));
             context.waitTicks(2);
 
@@ -107,10 +112,13 @@ public class LmpClientGameTest implements FabricClientGameTest
                 throw new AssertionError("标题应含数量进度 67.1%（1140/1700），实际：" + title);
             }
 
-            // 服务端按全量原理图统计，界面必须标注，否则玩家拿自己的材料清单一对就会当成缺陷
-            if (!title.contains("full schematic"))
+            // 服务端按全量原理图统计，界面必须标注，否则玩家拿自己的材料清单一对就会当成缺陷。
+            // 断言用翻译键而不是硬编码英文：这个用例不该因为客户端语言换了就失败。
+            String fullSchematicNote = StringUtils.translate("lmp.gui.status.full_schematic");
+
+            if (!title.contains(fullSchematicNote))
             {
-                throw new AssertionError("标题应标注「所需按全量原理图统计」，实际：" + title);
+                throw new AssertionError("标题应标注「所需按全量原理图统计」（" + fullSchematicNote + "），实际：" + title);
             }
 
             // 关键一条：上游会用玩家背包数量覆盖 Available 列（玩家背包是空的 → 全是 0）。

@@ -69,7 +69,7 @@ public class LmpGuiMaterialList extends GuiMaterialList
         if (status != null && status.phase() == ClientProgressStore.Phase.SCANNING)
         {
             return " | " + StringUtils.translate("lmp.gui.status.scanning",
-                    String.format("%.0f", status.fraction() * 100.0D),
+                    String.format(java.util.Locale.ROOT, "%.0f", status.fraction() * 100.0D),
                     status.chunksDone(), status.chunksTotal());
         }
 
@@ -86,10 +86,10 @@ public class LmpGuiMaterialList extends GuiMaterialList
         }
 
         String types = StringUtils.translate("lmp.gui.progress.types",
-                String.format("%.1f", progress.typeProgress() * 100.0D),
+                String.format(java.util.Locale.ROOT, "%.1f", progress.typeProgress() * 100.0D),
                 progress.completedTypes(), progress.totalTypes());
         String items = StringUtils.translate("lmp.gui.progress.items",
-                String.format("%.1f", progress.itemProgress() * 100.0D),
+                String.format(java.util.Locale.ROOT, "%.1f", progress.itemProgress() * 100.0D),
                 progress.cappedPresent(), progress.totalRequired());
 
         // 服务端按全量原理图统计，不看玩家在 Litematica 里禁用了哪些子区域。

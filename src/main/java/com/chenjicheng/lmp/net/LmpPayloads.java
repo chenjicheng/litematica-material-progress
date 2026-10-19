@@ -68,8 +68,70 @@ public final class LmpPayloads
         }
     }
 
-    // ------------------------------------------------------------ 服务端 -> 客户端
+    /**
+     * 新建或更新一个材料区。
+     *
+     * <p>为什么要走 payload 而不是让界面拼一条 {@code /lmp region ...} 文本命令：区域名允许含空格
+     * （界面是主要入口，不该被命令分词限制），而且类型化字段比文本命令少一层解析。
+     * 服务端仍然独立校验权限与区域约束——这条通道不是命令权限的旁路。
+     *
+     * @param regionId    {@code null} 表示新建；非空表示更新该区域
+     * @param name        玩家可见的名字
+     * @param dimension   维度标识符
+     * @param placementId 要绑定的共享放置。{@code null} 在新建时表示「不绑定」，
+     *                    在更新时表示「保持原绑定」——这条通道没有解绑动作，需要解绑时只能删了重建
+     */
+    public record RegionSavePayload(@Nullable UUID regionId, String name, String dimension,
+                                    BlockPos pos1, BlockPos pos2, @Nullable UUID placementId)
+            implements CustomPayload
+    {
+        public static final CustomPayload.Id<RegionSavePayload> ID =
+                new CustomPayload.Id<>(Identifier.of(LmpMod.MOD_ID, "region_save"));
 
+        public static final PacketCodec<RegistryByteBuf, RegionSavePayload> CODEC = PacketCodec.of(
+                (payload, buf) ->
+                {
+                    writeNullableUuid(buf, payload.regionId());
+                    buf.writeString(payload.name());
+                    buf.writeString(payload.dimension());
+                    buf.writeBlockPos(payload.pos1());
+                    buf.writeBlockPos(payload.pos2());
+                    writeNullableUuid(buf, payload.placementId());
+                },
+                buf -> new RegionSavePayload(readNullableUuid(buf), buf.readString(), buf.readString(),
+                        buf.readBlockPos(), buf.readBlockPos(), readNullableUuid(buf)));
+
+        public static final CustomPayload.Type<RegistryByteBuf, RegionSavePayload> TYPE =
+                new CustomPayload.Type<>(ID, CODEC);
+
+        @Override
+        public CustomPayload.Id<? extends CustomPayload> getId()
+        {
+            return ID;
+        }
+    }
+
+    /** 删除一个材料区。 */
+    public record RegionDeletePayload(UUID regionId) implements CustomPayload
+    {
+        public static final CustomPayload.Id<RegionDeletePayload> ID =
+                new CustomPayload.Id<>(Identifier.of(LmpMod.MOD_ID, "region_delete"));
+
+        public static final PacketCodec<RegistryByteBuf, RegionDeletePayload> CODEC = PacketCodec.of(
+                (payload, buf) -> writeUuid(buf, payload.regionId()),
+                buf -> new RegionDeletePayload(readUuid(buf)));
+
+        public static final CustomPayload.Type<RegistryByteBuf, RegionDeletePayload> TYPE =
+                new CustomPayload.Type<>(ID, CODEC);
+
+        @Override
+        public CustomPayload.Id<? extends CustomPayload> getId()
+        {
+            return ID;
+        }
+    }
+
+    // ------------------------------------------------------------ 服务端 -> 客户端
     /** 区域清单：玩家加入时以及任何区域变更后下发，客户端据此知道有哪些材料区。 */
     public record RegionListPayload(List<RegionInfo> regions) implements CustomPayload
     {
@@ -80,6 +142,13 @@ public final class LmpPayloads
                 (payload, buf) ->
                 {
                     List<RegionInfo> regions = payload.regions();
+
+                    if (regions.size() > MAX_ENTRIES)
+                    {
+                        LmpMod.LOGGER.warn("区域清单有 {} 条，超过单包上限 {}，接收端会丢弃多余的条目",
+                                regions.size(), MAX_ENTRIES);
+                    }
+
                     buf.writeVarInt(regions.size());
 
                     for (RegionInfo info : regions)
@@ -97,7 +166,14 @@ public final class LmpPayloads
                 },
                 buf ->
                 {
-                    int size = Math.min(buf.readVarInt(), MAX_ENTRIES);
+                    int declared = buf.readVarInt();
+                    int size = Math.min(declared, MAX_ENTRIES);
+
+                    if (declared > MAX_ENTRIES)
+                    {
+                        LmpMod.LOGGER.warn("区域清单声明了 {} 条，超过上限 {}，多余的会被丢弃", declared, MAX_ENTRIES);
+                    }
+
                     List<RegionInfo> regions = new ArrayList<>(size);
 
                     for (int i = 0; i < size; i++)
@@ -256,6 +332,8 @@ public final class LmpPayloads
     public static void registerPayloadTypes()
     {
         PayloadTypeRegistry.playC2S().register(RequestPayload.ID, RequestPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(RegionSavePayload.ID, RegionSavePayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(RegionDeletePayload.ID, RegionDeletePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(RegionListPayload.ID, RegionListPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(SnapshotPayload.ID, SnapshotPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(StatusPayload.ID, StatusPayload.CODEC);

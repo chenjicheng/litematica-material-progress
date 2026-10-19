@@ -1,5 +1,6 @@
 package com.chenjicheng.lmp.region;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,6 +48,14 @@ public record MaterialRegion(
 
     /** 覆盖的区块数上限（16×16 区块 = 256×256 格，足够一个仓库区）。 */
     public static final int MAX_CHUNKS = 256;
+
+    /**
+     * 名称长度上限。
+     *
+     * <p>名字来自客户端，而且会被原样塞进下发给所有玩家的区域清单（{@code writeString} 超过 32767
+     * 就抛异常）。不设上限的话，一个超长名字能先把广播打崩，再让所有人的区域清单收不到。
+     */
+    public static final int MAX_NAME_LENGTH = 64;
 
     public MaterialRegion
     {
@@ -162,7 +171,8 @@ public record MaterialRegion(
     {
         TOO_LARGE("too_large"),
         TOO_MANY_CHUNKS("too_many_chunks"),
-        EMPTY_NAME("empty_name");
+        EMPTY_NAME("empty_name"),
+        NAME_TOO_LONG("name_too_long");
 
         private final String keySuffix;
 
@@ -200,6 +210,38 @@ public record MaterialRegion(
             return Optional.of(Invalid.EMPTY_NAME);
         }
 
+        if (name.length() > MAX_NAME_LENGTH)
+        {
+            return Optional.of(Invalid.NAME_TOO_LONG);
+        }
+
         return Optional.empty();
+    }
+
+    /**
+     * 一条拒绝理由：i18n 键 + 它的参数。
+     *
+     * <p>三个入口（控制台命令、协议处理、界面草稿）必须对同一条拒绝给出同样的说法，
+     * 因此「哪个原因、几个参数」只在这里决定一次。
+     */
+    public record Rejection(String messageKey, List<Object> args)
+    {
+        /** 便于直接交给 {@code Text.translatable} / {@code StringUtils.translate}。 */
+        public Object[] argsArray()
+        {
+            return this.args.toArray();
+        }
+    }
+
+    /** 把 {@link #validate()} 给出的原因渲染成可翻译的消息。 */
+    public Rejection rejection(Invalid invalid)
+    {
+        return switch (invalid)
+        {
+            case TOO_LARGE -> new Rejection(Invalid.TOO_LARGE.key(), List.of(this.volume(), MAX_VOLUME));
+            case TOO_MANY_CHUNKS -> new Rejection(Invalid.TOO_MANY_CHUNKS.key(), List.of(this.chunkCount()));
+            case EMPTY_NAME -> new Rejection(Invalid.EMPTY_NAME.key(), List.of());
+            case NAME_TOO_LONG -> new Rejection(Invalid.NAME_TOO_LONG.key(), List.of(MAX_NAME_LENGTH));
+        };
     }
 }

@@ -188,7 +188,13 @@ public final class ScanScheduler
     {
         if (this.scanningRegion != null && this.scanningRegion.id().equals(regionId))
         {
-            this.cancel();
+            // 只停扫描器，**不**走 cancel()：后者会顺带清空排队中的区域，
+            // 而那个排队请求属于另一个区域，跟这次取消没有关系
+            if (this.scanner != null)
+            {
+                this.scanner.cancel();
+            }
+
             return true;
         }
 
@@ -222,8 +228,11 @@ public final class ScanScheduler
     {
         if (this.scanner == null && this.queuedRegionId != null)
         {
-            this.startScan(server, this.queuedRegionId);
+            // 先取走再启动：startScan 会发布状态、回调监听者，而监听者可能在这一瞬间排进新的请求。
+            // 启动之后再无条件清空，会把那个刚排进来的请求一起抹掉。
+            UUID queued = this.queuedRegionId;
             this.queuedRegionId = null;
+            this.startScan(server, queued);
         }
 
         if (this.scanner == null)
@@ -269,10 +278,31 @@ public final class ScanScheduler
             return;
         }
 
+        // regions.json 是磁盘上的文件，可以被手工改坏。语义非法的记录会让 chunks() 抛异常，
+        // 而那个异常会从 tick 一路冒到服务端 tick 循环；更糟的是状态已经置成「正在扫描」，
+        // 区域会永久卡在那里、连重新请求都不受理。因此先校验、先构造，再动状态。
+        if (region.validate().isPresent())
+        {
+            LmpMod.LOGGER.warn("材料区「{}」的当前定义不合法，跳过扫描；请在界面里重新划定范围", region.name());
+            return;
+        }
+
+        RegionScanner created;
+
+        try
+        {
+            created = new RegionScanner(world, region);
+        }
+        catch (RuntimeException e)
+        {
+            LmpMod.LOGGER.error("材料区「{}」的扫描器构造失败，跳过这一轮", region.name(), e);
+            return;
+        }
+
         this.scanningRegion = region;
-        this.scanner = new RegionScanner(world, region);
+        this.scanner = created;
         this.statusTickCounter = 0;
-        this.publishStatus(region.id(), new ScanStatus(Phase.SCANNING, 0, this.scanner.chunksTotal(), 0, region.revision()));
+        this.publishStatus(region.id(), new ScanStatus(Phase.SCANNING, 0, created.chunksTotal(), 0, region.revision()));
     }
 
     private void finishScan(MinecraftServer server)
@@ -303,8 +333,7 @@ public final class ScanScheduler
         int coverage = finished.coveragePermille();
         MaterialProgress.Status status = finished.resultStatus();
         long finishedAt = System.currentTimeMillis();
-        Optional<MaterialRegion> maybeUpdated =
-                this.store.updateInMemory(region.withScanResult(finishedAt, region.revision(), coverage));
+        Optional<MaterialRegion> maybeUpdated = this.store.applyScanResult(region.id(), finishedAt, coverage);
 
         if (maybeUpdated.isEmpty())
         {
@@ -315,7 +344,9 @@ public final class ScanScheduler
         }
 
         MaterialRegion updated = maybeUpdated.get();
-        Optional<Map<Item, Integer>> required = this.cachedRequired(region);
+        // 用**当前**区域（而不是扫描开始时捕获的那份）取所需材料：扫描期间玩家可能刚绑定好 placement，
+        // 拿旧记录会让界面继续显示「所需未知」
+        Optional<Map<Item, Integer>> required = this.cachedRequired(updated);
 
         MaterialProgress progress = required
                 .map(map -> MaterialProgress.join(map, counts, status, coverage, updated.revision()))
@@ -328,7 +359,7 @@ public final class ScanScheduler
         LmpMod.LOGGER.info("材料区「{}」扫描完成：{} 个容器，{} 种物品，覆盖率 {}‰，状态 {}",
                 region.name(), finished.containersScanned(), counts.size(), coverage, status);
 
-        if (required.isEmpty() && region.placementId() != null)
+        if (required.isEmpty() && updated.placementId() != null)
         {
             this.startAsyncRequiredParse(server, updated);
         }
@@ -393,6 +424,14 @@ public final class ScanScheduler
 
     private void onRequiredParsed(MinecraftServer server, UUID regionId, boolean parsed)
     {
+        // 解析在工作线程上跑，回来时同一区域可能已经开始新一轮扫描。此时发布「上一轮的快照 + IDLE」
+        // 会把正在进行的扫描状态和内容一起回退，界面就卡在旧数据上。
+        if (this.isScanning(regionId))
+        {
+            LmpMod.LOGGER.debug("材料区 {} 已开始新一轮扫描，丢弃这一轮原理图解析结果", regionId);
+            return;
+        }
+
         MaterialProgress existing = this.snapshots.get(regionId);
         long revision = this.store.byId(regionId).map(MaterialRegion::revision).orElse(0L);
 

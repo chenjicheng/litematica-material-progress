@@ -43,7 +43,7 @@ dependencies {
     // 让测试运行在 Fabric 运行时中：Minecraft 的 yarn 映射存在跨包 package-private 访问，
     // 纯 JUnit JVM 下会 IllegalAccessError，必须由 loader 的 dev 期变换处理。
     testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
-    testImplementation "org.junit.jupiter:junit-jupiter:5.13.4"
+    testImplementation "org.junit.jupiter:junit-jupiter:${project.junit_version}"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 

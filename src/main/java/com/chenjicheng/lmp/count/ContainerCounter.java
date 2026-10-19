@@ -1,6 +1,5 @@
 package com.chenjicheng.lmp.count;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,12 +67,6 @@ public final class ContainerCounter
         {
             countStack(inventory.getStack(slot), out, 0);
         }
-    }
-
-    /** 统计单个物品栈（含其堆叠数与内部内容）。 */
-    public static void countStack(ItemStack stack, Map<Item, Long> out)
-    {
-        countStack(stack, out, 0);
     }
 
     /**
@@ -182,13 +175,5 @@ public final class ContainerCounter
         {
             return Long.MAX_VALUE;
         }
-    }
-
-    /** 便于调用方遍历结果。 */
-    public static List<Map.Entry<Item, Long>> sortedByCountDescending(Map<Item, Long> counts)
-    {
-        List<Map.Entry<Item, Long>> entries = new ArrayList<>(counts.entrySet());
-        entries.sort(Map.Entry.<Item, Long>comparingByValue().reversed());
-        return entries;
     }
 }

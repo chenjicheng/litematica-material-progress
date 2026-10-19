@@ -151,8 +151,12 @@ class ContainerCounterTest
         SimpleInventory chest = new SimpleInventory(inner);
         Map<Item, Long> counts = ContainerCounter.countContainer(chest);
 
-        long total = counts.values().stream().mapToLong(Long::longValue).sum();
-        assertTrue(total >= 1L, "深层嵌套仍应统计出至少一个物品，实际=" + counts);
+        // 断言必须钉住「到达上限后按物品本身计」这件事本身。只断言「总数 >= 1」是恒真的：
+        // 把深度保护整个删掉，最里面的钻石会被统计，那个断言照样通过。
+        assertEquals(1L, countOf(counts, Items.SHULKER_BOX),
+                "到达深度上限的潜影盒应当按物品本身计一次，实际=" + counts);
+        assertEquals(0L, countOf(counts, Items.NETHERITE_INGOT),
+                "超出深度上限的内容不得被统计，实际=" + counts);
     }
 
     @Test

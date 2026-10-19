@@ -5,7 +5,13 @@ import java.util.UUID;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
+import net.minecraft.network.packet.CustomPayload;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
+
 import com.chenjicheng.lmp.client.ClientProgressStore;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 客户端网络：接收服务端推送，并按需请求快照。
@@ -46,6 +52,18 @@ public final class LmpClientNetworking
         return ClientPlayNetworking.canSend(LmpPayloads.RequestPayload.ID);
     }
 
+    /** 服务端是否接受区域保存。与 {@link #canRequest()} 分开判断：旧版服务端可能只认前几个 payload。 */
+    public static boolean canSaveRegion()
+    {
+        return canSend(LmpPayloads.RegionSavePayload.ID);
+    }
+
+    /** 服务端是否接受区域删除。 */
+    public static boolean canDeleteRegion()
+    {
+        return canSend(LmpPayloads.RegionDeletePayload.ID);
+    }
+
     /**
      * 请求某个区域的快照。
      *
@@ -58,5 +76,50 @@ public final class LmpClientNetworking
         {
             ClientPlayNetworking.send(new LmpPayloads.RequestPayload(regionId, knownRevision, forceRescan));
         }
+    }
+
+    /**
+     * 保存（新建或更新）一个材料区。
+     *
+     * @param regionId {@code null} 表示新建
+     */
+    public static boolean saveRegion(@Nullable UUID regionId, String name, Identifier dimension,
+                                     BlockPos pos1, BlockPos pos2, @Nullable UUID placementId)
+    {
+        if (!canSaveRegion())
+        {
+            return false;
+        }
+
+        ClientPlayNetworking.send(new LmpPayloads.RegionSavePayload(regionId, name, dimension.toString(),
+                pos1, pos2, placementId));
+        return true;
+    }
+
+    /**
+     * 删除一个材料区。
+     *
+     * @return 是否真的发出去了——服务端不认这个 payload 时返回 false，调用方据此给出提示
+     */
+    public static boolean deleteRegion(UUID regionId)
+    {
+        if (!canDeleteRegion())
+        {
+            return false;
+        }
+
+        ClientPlayNetworking.send(new LmpPayloads.RegionDeletePayload(regionId));
+        return true;
+    }
+
+    /**
+     * 能否发送某个 payload。
+     *
+     * <p>不能只判断「服务端装了本模组」：服务端可能装了旧版本，只认其中一部分 payload。
+     * 逐个判断比一个总开关更准确，缺哪个就安静地不发，由调用方给出提示。
+     */
+    private static boolean canSend(CustomPayload.Id<? extends CustomPayload> id)
+    {
+        return ClientPlayNetworking.canSend(id);
     }
 }

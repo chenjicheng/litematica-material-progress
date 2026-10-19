@@ -151,8 +151,23 @@ class RegionStoreTest
     }
 
     @Test
-    @DisplayName("updateInMemory：只改内存、不落盘；区域不存在时不新增")
-    void updateInMemoryDoesNotPersistOrResurrect(@TempDir Path dir) throws IOException
+    @DisplayName("写盘失败：内存里照样生效，但 lastSaveSucceeded 为假，供上层提示玩家")
+    void saveFailureIsReportedWithoutLosingTheInMemoryChange(@TempDir Path dir) throws IOException
+    {
+        // 把本该是目录的那一级占成一个普通文件：createDirectories 必然失败，写入路径被彻底堵死
+        Path blocked = dir.resolve("lmp");
+        Files.writeString(blocked, "not a directory");
+
+        RegionStore store = RegionStore.load(RegionStore.fileFor(blocked));
+        MaterialRegion stored = store.put(region("a", new BlockPos(0, 0, 0), new BlockPos(15, 0, 15)));
+
+        assertFalse(store.lastSaveSucceeded(), "写盘失败必须反映在 lastSaveSucceeded 上");
+        assertTrue(store.byId(stored.id()).isPresent(), "内存里的改动仍然生效，只是重启后会丢");
+    }
+
+    @Test
+    @DisplayName("applyScanResult：只改内存、不落盘；区域不存在时不新增")
+    void applyScanResultDoesNotPersistOrResurrect(@TempDir Path dir) throws IOException
     {
         RegionStore store = RegionStore.load(RegionStore.fileFor(dir));
         MaterialRegion region = region("a", new BlockPos(0, 0, 0), new BlockPos(15, 0, 15));
@@ -160,8 +175,7 @@ class RegionStoreTest
 
         // 模拟一次扫描收尾：lastScanAt / coverage 变了
         long scannedAt = 12345L;
-        MaterialRegion updated = store.updateInMemory(
-                stored.withScanResult(scannedAt, stored.revision(), 1000)).orElseThrow();
+        MaterialRegion updated = store.applyScanResult(stored.id(), scannedAt, 1000).orElseThrow();
 
         assertEquals(scannedAt, store.byId(stored.id()).orElseThrow().lastScanAt(), "内存里应当已更新");
         assertTrue(updated.revision() > stored.revision(), "更新应当推进版本号");
@@ -173,6 +187,33 @@ class RegionStoreTest
                 "扫描结果不应被写进文件（否则每个扫描收尾 tick 都要做一次文件写入）");
 
         // 区域不存在时不得新增——这条挡住了「扫描收尾把已删除的区域写回内存」
-        assertTrue(store.updateInMemory(region("ghost", new BlockPos(0, 0, 0), new BlockPos(1, 0, 1))).isEmpty());
+        assertTrue(store.applyScanResult(UUID.randomUUID(), 0L, 0).isEmpty());
+    }
+
+    @Test
+    @DisplayName("扫描收尾不得回滚扫描期间发生的编辑（回归：绑定被静默覆盖并落盘）")
+    void applyScanResultKeepsEditsMadeWhileTheScanWasRunning(@TempDir Path dir) throws IOException
+    {
+        RegionStore store = RegionStore.load(RegionStore.fileFor(dir));
+        MaterialRegion stored = store.put(region("仓库", new BlockPos(0, 0, 0), new BlockPos(15, 0, 15)));
+
+        // 扫描按 2ms/tick 分片，可以跨很多 tick。旧实现把「扫描开始时」那条记录整条带回收尾，
+        // 于是这里模拟的绑定会被覆盖回去，而覆盖结果还会在服务器停止时落盘。
+        UUID placement = UUID.randomUUID();
+        store.put(stored.withPlacement(placement));
+        assertEquals(placement, store.byId(stored.id()).orElseThrow().placementId(), "前提：绑定已生效");
+
+        MaterialRegion updated = store.applyScanResult(stored.id(), 12345L, 1000).orElseThrow();
+
+        assertEquals(placement, updated.placementId(), "扫描收尾必须保留扫描期间的绑定");
+        assertEquals(12345L, updated.lastScanAt(), "扫描结果本身仍要写回");
+        assertEquals(1000, updated.coveragePermille());
+
+        // 必须显式 save() 一次：扫描收尾本身不落盘（那是刻意的），而服务器停止时会落。
+        // 少了这一步，「重启后仍然是绑定状态」这句断言在旧实现下也会通过——因为文件里本来就是绑定状态。
+        store.save();
+        RegionStore reloaded = RegionStore.load(RegionStore.fileFor(dir));
+        assertEquals(placement, reloaded.byId(stored.id()).orElseThrow().placementId(),
+                "被回滚的编辑本来会被落盘，重启后就永久丢失");
     }
 }

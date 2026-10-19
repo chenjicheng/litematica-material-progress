@@ -14,6 +14,12 @@
   },
   "license": "LGPL-3.0",
   "environment": "*",
+  "mixins": [
+    {
+      "config": "lmp.mixins.json",
+      "environment": "client"
+    }
+  ],
   "entrypoints": {
     "main": [
       "com.chenjicheng.lmp.LmpMod"
@@ -30,7 +36,6 @@
   },
   "suggests": {
     "syncmatica": "*",
-    "servux": "*",
     "litematica": ">=0.26.16 <0.27.0-",
     "malilib": ">=0.27.20 <0.28.0-"
   }
