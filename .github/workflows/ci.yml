@@ -76,13 +76,29 @@ jobs:
 
       # 客户端用例要拉起真实的图形客户端。CI 上没有显示器，用 Xvfb 提供虚拟显示；
       # 渲染走 Mesa 的软件后端（llvmpipe），够 Minecraft 用。
+      #
+      # 重试一次是有意的：框架加载世界有 60 秒的硬编码上限（ClientGameTestImpl.waitForWorldLoad），
+      # 托管 runner 磁盘/CPU 抖动时偶发超时，失败点与用例断言无关。两次都失败仍然判失败。
       - name: 安装 Xvfb 与 Mesa
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglx-mesa0 libopenal1
 
       - name: 运行客户端 GameTest
-        run: xvfb-run -a --server-args="-screen 0 1280x720x24" ./gradlew runClientGameTest --console=plain --stacktrace
+        run: |
+          for attempt in 1 2; do
+            echo "::group::第 ${attempt} 次运行"
+            if xvfb-run -a --server-args="-screen 0 1280x720x24" ./gradlew runClientGameTest --console=plain --stacktrace; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::第 ${attempt} 次运行失败，清理运行目录后重试"
+            ./gradlew --stop || true
+            rm -rf build/run/clientGameTest
+          done
+          echo "::error::客户端 GameTest 连续两次失败"
+          exit 1
 
       # 用例会留截图，失败时也要拿到，方便判断是渲染问题还是断言问题
       - name: 上传截图
