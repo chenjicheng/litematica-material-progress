@@ -69,7 +69,10 @@ public final class LmpSchematicFixture
         }
 
         // 用上游自己的写入器（与它保存文件时走同一条路径），不是我们拼的 NBT
-        DataFileUtils.writeToFileUsingNbtIo(schematic.writeToData(), file);
+        if (!DataFileUtils.writeCompoundDataToCompressedNbtFile(file, schematic.writeToData()))
+        {
+            throw new IOException("写入测试用原理图失败：" + file);
+        }
     }
 
     /**
