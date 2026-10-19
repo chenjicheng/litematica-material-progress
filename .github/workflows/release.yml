@@ -46,11 +46,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 发布说明优先取仓库里的 .github/release-notes/<标签>.md：措辞可以像代码一样评审与追溯。
+          # 没有对应文件时回退到 GitHub 自动生成的提交摘要。
+          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "${notes}" ]; then
+            notes_args=(--notes-file "${notes}")
+          else
+            notes_args=(--generate-notes)
+          fi
+
           # 产物是 remap 过的 build/libs/*.jar（-dev.jar 在 build/devlibs，不在通配范围内）
           gh release create "${GITHUB_REF_NAME}" \
             build/libs/litematica-material-progress-*.jar \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+            "${notes_args[@]}"
 
       - name: 上传测试报告
         if: failure()
