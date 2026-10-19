@@ -63,9 +63,7 @@ public class LmpSchematicGameTest implements FabricClientGameTest
     {
         final UUID placementId = UUID.randomUUID();
 
-        try (TestSingleplayerContext singleplayer = context.worldBuilder()
-                .adjustSettings(creator -> creator.setCheatsEnabled(true))
-                .create())
+        try (TestSingleplayerContext singleplayer = LmpTestWorlds.create(context))
         {
             context.waitFor(client -> client.player != null);
             context.waitTicks(20);

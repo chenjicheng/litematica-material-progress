@@ -47,11 +47,8 @@ public class LmpClientSetupGameTest implements FabricClientGameTest
 
         // 必须进一个真实世界：保存要发 payload，而 payload 需要一个连着的服务端；
         // 同时「用当前选区」这类按钮的可用状态也取决于玩家在不在对应维度。
-        // 必须开作弊：改材料区要求权限等级 2（与 /lmp 命令同一道闸），而未开作弊的单人世界主机
-        // 权限等级是 0——服务端会明确回一句「你没有修改材料区的权限」，用例就卡在等广播上。
-        try (TestSingleplayerContext singleplayer = context.worldBuilder()
-                .adjustSettings(creator -> creator.setCheatsEnabled(true))
-                .create())
+        // 世界是超平坦且开作弊的，理由见 LmpTestWorlds（世界加载 60 秒上限 + 权限等级 2）。
+        try (TestSingleplayerContext singleplayer = LmpTestWorlds.create(context))
         {
             context.waitFor(client -> client.player != null);
             context.waitTicks(20);

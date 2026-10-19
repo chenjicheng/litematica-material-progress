@@ -52,7 +52,7 @@ public class LmpClientGameTest implements FabricClientGameTest
         // 必须进一个真实世界让 client.player 不为 null：
         // 上游 GuiMaterialList 的构造函数会调 updateAvailableCounts(getMaterialsAll(), player)，
         // 而它在 player == null 时直接返回——站在标题界面上根本测不到这个覆盖行为。
-        try (TestSingleplayerContext singleplayer = context.worldBuilder().create())
+        try (TestSingleplayerContext singleplayer = LmpTestWorlds.create(context))
         {
             context.waitFor(client -> client.player != null);
             context.waitTicks(20);
