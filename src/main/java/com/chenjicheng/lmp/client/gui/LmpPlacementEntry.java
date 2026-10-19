@@ -25,8 +25,23 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class LmpPlacementEntry
 {
+    /**
+     * 最近一次挂上的按钮的位置（x, y, width, height）。
+     *
+     * <p>供诊断与客户端 GameTest 使用：按钮挂在放置行内部，外面拿不到它。存坐标而不是控件引用，
+     * 免得把已经关掉的界面留在内存里。
+     */
+    private static volatile int[] lastAttachedBounds;
+
     private LmpPlacementEntry()
     {
+    }
+
+    /** 最近一次挂上的按钮的位置；还没挂过时为 {@code null}。 */
+    public static int[] lastAttachedBounds()
+    {
+        int[] bounds = lastAttachedBounds;
+        return bounds == null ? null : bounds.clone();
     }
 
     /**
@@ -55,6 +70,7 @@ public final class LmpPlacementEntry
             ((LmpWidgetContainerInvoker) container).lmp$addButton(button, (clicked, mouseButton) ->
                     LmpProgressScreens.openSettings(data.placementId(), data.name(), data.dimension(), data.bounds()));
 
+            lastAttachedBounds = new int[] { button.getX(), button.getY(), button.getWidth(), button.getHeight() };
             return button;
         }
         catch (RuntimeException | LinkageError e)

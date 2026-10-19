@@ -7,6 +7,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
 import fi.dy.masa.litematica.schematic.placement.SchematicPlacement;
+import fi.dy.masa.litematica.schematic.placement.SubRegionPlacement;
 import fi.dy.masa.litematica.selection.Box;
 
 import com.chenjicheng.lmp.LmpMod;
@@ -65,22 +66,55 @@ public final class LmpPlacementBridge
         }
     }
 
-    /** 原理图包围盒归一化成 min/max；上游没算出尺寸时返回 {@code null}。 */
+    /**
+     * 原理图包围盒归一化成 min/max；上游没算出尺寸时返回 {@code null}。
+     *
+     * <p>不能只读 {@code getEclosingBox()}：Syncmatica 渲染出来的放置没有算 enclosingBox（实测为
+     * {@code null}），而它的子区域包围盒是齐的。没有尺寸，「用原理图范围」这个按钮就永远点不了，
+     * 所以这里回退成「子区域包围盒取并集」——两种来源给的是同一个范围。
+     */
     private static @Nullable BlockPos[] bounds(SchematicPlacement placement)
     {
         Box box = placement.getEclosingBox();
 
-        if (box == null || box.getPos1() == null || box.getPos2() == null)
+        if (box != null && box.getPos1() != null && box.getPos2() != null)
         {
-            return null;
+            return normalize(box.getPos1(), box.getPos2());
         }
 
-        BlockPos a = box.getPos1();
-        BlockPos b = box.getPos2();
-        BlockPos min = new BlockPos(Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()), Math.min(a.getZ(), b.getZ()));
-        BlockPos max = new BlockPos(Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ()));
+        BlockPos min = null;
+        BlockPos max = null;
 
-        return new BlockPos[] { min, max };
+        for (Box subRegion : placement.getSubRegionBoxes(SubRegionPlacement.RequiredEnabled.ANY).values())
+        {
+            if (subRegion.getPos1() == null || subRegion.getPos2() == null)
+            {
+                continue;
+            }
+
+            BlockPos[] normalized = normalize(subRegion.getPos1(), subRegion.getPos2());
+            min = min == null ? normalized[0] : min(min, normalized[0]);
+            max = max == null ? normalized[1] : max(max, normalized[1]);
+        }
+
+        return min == null ? null : new BlockPos[] { min, max };
+    }
+
+    private static BlockPos[] normalize(BlockPos a, BlockPos b)
+    {
+        return new BlockPos[] {
+                new BlockPos(Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()), Math.min(a.getZ(), b.getZ())),
+                new BlockPos(Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ())) };
+    }
+
+    private static BlockPos min(BlockPos a, BlockPos b)
+    {
+        return new BlockPos(Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()), Math.min(a.getZ(), b.getZ()));
+    }
+
+    private static BlockPos max(BlockPos a, BlockPos b)
+    {
+        return new BlockPos(Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ()));
     }
 
     /** 唯一直接引用 Syncmatica 类的地方，只在确认模组已加载后才被调用（懒加载）。 */

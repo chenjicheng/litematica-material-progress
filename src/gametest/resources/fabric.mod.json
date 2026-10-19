@@ -11,7 +11,8 @@
     ],
     "fabric-client-gametest": [
       "com.chenjicheng.lmp.gametest.LmpClientGameTest",
-      "com.chenjicheng.lmp.gametest.LmpClientSetupGameTest"
+      "com.chenjicheng.lmp.gametest.LmpClientSetupGameTest",
+      "com.chenjicheng.lmp.gametest.LmpSchematicGameTest"
     ]
   },
   "depends": {

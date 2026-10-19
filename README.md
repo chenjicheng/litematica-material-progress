@@ -14,7 +14,8 @@ M0 到 M3 已实现：服务端异步分片扫描、`.litematic` 解析与所需
 扫描开销已在真实服务端上实测。256 个区块、16384 个容器的区域，每 tick 花在扫描上的时间为
 p50 2.00ms、p99 2.03ms，前后已加载区块数完全不变。
 
-**尚未验证**：与真实的 Litematica 导出文件做逐项比对。详见 [docs/design.md](docs/design.md) 的已知限制。
+**尚未验证**：玩家真实存档里那些更复杂的原理图（模组方块、超大调色板、旧数据版本、多子区域）。
+其余部分已经用 Litematica 自己的写入器生成的原理图对拍过，详见 [docs/design.md](docs/design.md) 的已知限制。
 
 ## 使用方法
 
@@ -89,7 +90,7 @@ p50 2.00ms、p99 2.03ms，前后已加载区块数完全不变。
 ./gradlew build              # 产物：build/libs/litematica-material-progress-<version>.jar，已 remap，可直接放入 mods/
 ./gradlew test               # 109 个单元测试
 ./gradlew runGameTest        # 5 个 GameTest，跑在真实服务端上
-./gradlew runClientGameTest  # 2 个客户端 GameTest，跑在真实客户端里并留下截图
+./gradlew runClientGameTest  # 3 个客户端 GameTest，跑在真实客户端里并留下截图
 ```
 
 前两条并入 `./gradlew build`。客户端用例会拉起图形客户端，因此需要人工触发，截图落在
