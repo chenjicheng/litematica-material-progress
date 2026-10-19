@@ -1,5 +1,7 @@
 # Litematica Material Progress
 
+[![CI](https://github.com/chenjicheng/litematica-material-progress/actions/workflows/ci.yml/badge.svg)](https://github.com/chenjicheng/litematica-material-progress/actions/workflows/ci.yml)
+
 这个 Fabric 模组为共享原理图（Litematica + Syncmatica）显示材料收集进度。
 
 你在世界里划出一块**材料区**，把所有相关容器放进去。服务端异步扫描区内的容器，
